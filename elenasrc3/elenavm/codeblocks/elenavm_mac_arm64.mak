@@ -25,7 +25,8 @@ LIBDIR_RELEASE = $(LIBDIR)
 LIB_RELEASE = $(LIB)
 LDFLAGS_RELEASE = $(LDFLAGS) -s
 OBJDIR_RELEASE = ../../temp/elenavm64
-DEP_RELEASE =
+DEP_RELEASE = $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o
+LIB_RELEASE += $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o
 OUT_RELEASE = ../../../bin/libelenavm60_64.dylib
 INSTALL_NAME_RELEASE = /usr/local/lib/elena/libelenavm60_64.dylib
 
@@ -67,6 +68,18 @@ $(OBJDIR_RELEASE)/__/__/common/ustring.o: ../../common/ustring.cpp
 
 $(OBJDIR_RELEASE)/__/__/engine/elenamachine.o: ../../engine/elenamachine.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/elenamachine.cpp -o $(OBJDIR_RELEASE)/__/__/engine/elenamachine.o
+
+$(OBJDIR_RELEASE)/__/__/engine/dispatch.o: ../../codegen/dispatch.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/dispatch.cpp -o $(OBJDIR_RELEASE)/__/__/engine/dispatch.o
+
+$(OBJDIR_RELEASE)/__/__/engine/method.o: ../../codegen/method.cpp ../../codegen/method.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/method.cpp -o $(OBJDIR_RELEASE)/__/__/engine/method.o
+
+$(OBJDIR_RELEASE)/__/__/engine/ecode.o: ../../codegen/ecode.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/ecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/ecode.o
+
+$(OBJDIR_RELEASE)/__/__/engine/eir.o: ../../codegen/eir.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/eir.cpp -o $(OBJDIR_RELEASE)/__/__/engine/eir.o
 
 $(OBJDIR_RELEASE)/__/__/engine/bytecode.o: ../../engine/bytecode.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/bytecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/bytecode.o

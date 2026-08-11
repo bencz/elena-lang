@@ -25,7 +25,8 @@ LIBDIR_RELEASE = $(LIBDIR)
 LIB_RELEASE = $(LIB)
 LDFLAGS_RELEASE = $(LDFLAGS) -s
 OBJDIR_RELEASE = ../../temp/elenavm64
-DEP_RELEASE = 
+DEP_RELEASE = $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o
+LIB_RELEASE += $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o
 OUT_RELEASE = ../../../bin/libelenavm60_64.so
 
 OBJ_RELEASE = $(OBJDIR_RELEASE)/__/__/common/dump.o $(OBJDIR_RELEASE)/__/__/common/files.o $(OBJDIR_RELEASE)/__/__/common/ustring.o $(OBJDIR_RELEASE)/__/__/engine/elenamachine.o $(OBJDIR_RELEASE)/__/__/engine/bytecode.o $(OBJDIR_RELEASE)/__/__/engine/gcroutines.o $(OBJDIR_RELEASE)/__/__/engine/linux/lnxroutines.o $(OBJDIR_RELEASE)/__/__/engine/linux/elfhelper.o $(OBJDIR_RELEASE)/__/elenavmmachine.o  $(OBJDIR_RELEASE)/__/__/engine/aarch64/aarch64routines.o $(OBJDIR_RELEASE)/__/linux/lnxsection.o $(OBJDIR_RELEASE)/__/linux/elenalnxvmachine.o $(OBJDIR_RELEASE)/__/__/engine/arm64compiler.o $(OBJDIR_RELEASE)/__/linux/main.o $(OBJDIR_RELEASE)/__/__/engine/xmlprojectbase.o $(OBJDIR_RELEASE)/__/__/engine/jitcompiler.o $(OBJDIR_RELEASE)/__/__/engine/linux/presenter.o $(OBJDIR_RELEASE)/__/__/engine/codescope.o $(OBJDIR_RELEASE)/__/__/common/xmltree.o $(OBJDIR_RELEASE)/__/__/common/config.o $(OBJDIR_RELEASE)/__/__/engine/jitlinker.o
@@ -61,6 +62,18 @@ $(OBJDIR_RELEASE)/__/__/common/ustring.o: ../../common/ustring.cpp
 
 $(OBJDIR_RELEASE)/__/__/engine/elenamachine.o: ../../engine/elenamachine.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/elenamachine.cpp -o $(OBJDIR_RELEASE)/__/__/engine/elenamachine.o
+
+$(OBJDIR_RELEASE)/__/__/engine/dispatch.o: ../../codegen/dispatch.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/dispatch.cpp -o $(OBJDIR_RELEASE)/__/__/engine/dispatch.o
+
+$(OBJDIR_RELEASE)/__/__/engine/method.o: ../../codegen/method.cpp ../../codegen/method.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/method.cpp -o $(OBJDIR_RELEASE)/__/__/engine/method.o
+
+$(OBJDIR_RELEASE)/__/__/engine/ecode.o: ../../codegen/ecode.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/ecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/ecode.o
+
+$(OBJDIR_RELEASE)/__/__/engine/eir.o: ../../codegen/eir.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/eir.cpp -o $(OBJDIR_RELEASE)/__/__/engine/eir.o
 
 $(OBJDIR_RELEASE)/__/__/engine/bytecode.o: ../../engine/bytecode.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/bytecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/bytecode.o

@@ -8,6 +8,9 @@
 #ifndef CORE_H
 #define CORE_H
 
+#include <stddef.h>
+#include "../common/runtimelayout.h"
+
 namespace elena_lang
 {
    // --- 32bit ELENA Object constants ---
@@ -226,6 +229,40 @@ namespace elena_lang
       pos_t             gc_yg_size;
       pos_t             threadCounter;
    };
+
+   static_assert(offsetof(GCTable, gc_yg_current)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), GCDataField::YoungCurrent));
+   static_assert(offsetof(GCTable, gc_perm_current)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), GCDataField::PermanentCurrent));
+   static_assert(offsetof(GCTable, gc_lock)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), GCDataField::Lock));
+   static_assert(offsetof(GCTable, gc_signal)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), GCDataField::Signal));
+   static_assert(offsetof(GCTable, gc_queue_sem)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), GCDataField::QueueSemaphore));
+   static_assert(sizeof(GCTable)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), GCDataField::TableEnd));
+
+   static_assert(offsetof(ThreadContent, tt_stack_frame)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), ThreadContentField::StackFrame));
+   static_assert(offsetof(ThreadContent, tt_sync_event)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), ThreadContentField::SyncEvent));
+   static_assert(offsetof(ThreadContent, tt_flags)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), ThreadContentField::Flags));
+   static_assert(sizeof(ThreadContent)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), ThreadContentField::ContentEnd));
+
+   static_assert(offsetof(ThreadTable, slots)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), ThreadTableField::Slots));
+   static_assert(sizeof(ThreadSlot)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), ThreadSlotField::SlotEnd));
+
+   static_assert(offsetof(SystemEnv, tlsSize)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), SystemEnvironmentField::TLSSize));
+   static_assert(offsetof(SystemEnv, threadCounter)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), SystemEnvironmentField::ThreadCount));
+   static_assert(sizeof(SystemEnv)
+      == RuntimeLayout::offsetOf(sizeof(uintptr_t), SystemEnvironmentField::EnvironmentEnd));
 
    constexpr int SizeOfExceptionStruct32 = 0x10;
    constexpr int SizeOfExceptionStruct64 = 0x20;

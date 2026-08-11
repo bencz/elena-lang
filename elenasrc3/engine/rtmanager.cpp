@@ -197,15 +197,21 @@ size_t RTManager :: retriveAddressInfo(LibraryLoaderBase& provider, addr_t retAd
    return 0;
 }
 
-constexpr pos_t MessageEntryLen = sizeof(uintptr_t) * 2;
+static pos_t messageEntryOffset(ref_t subjectRef, MessageTableField field)
+{
+   return RuntimeLayout::entryOffset(sizeof(uintptr_t), subjectRef, field);
+}
 
 bool RTManager :: loadSignature(ref_t subjectRef, pos_t argCount, addr_t* addresses)
 {
    pos_t mtableOffset = MemoryBase::getDWord(msection, 0);
-   ref_t actionPtr = MemoryBase::getDWord(msection, mtableOffset + subjectRef * MessageEntryLen);
+   ref_t actionPtr = MemoryBase::getDWord(msection,
+      mtableOffset + messageEntryOffset(subjectRef, MessageTableField::Action));
    if (actionPtr != 0) {
       uintptr_t singPtr = 0;
-      msection->read(mtableOffset + subjectRef * MessageEntryLen + (int)sizeof(uintptr_t), &singPtr, sizeof(uintptr_t));
+      msection->read(mtableOffset
+         + messageEntryOffset(subjectRef, MessageTableField::Payload),
+         &singPtr, sizeof(uintptr_t));
 
       for (pos_t i = 0; i < argCount; i++) {
          addresses[i] = ((addr_t*)singPtr)[i];
@@ -221,10 +227,13 @@ void RTManager :: loadSubjectName(IdentifierString& actionName, ref_t subjectRef
 {
    pos_t mtableOffset = MemoryBase::getDWord(msection, 0);
 
-   ref_t actionPtr = MemoryBase::getDWord(msection, mtableOffset + subjectRef * MessageEntryLen);
+   ref_t actionPtr = MemoryBase::getDWord(msection,
+      mtableOffset + messageEntryOffset(subjectRef, MessageTableField::Action));
    if (!actionPtr) {
       addr_t namePtr = 0;
-      msection->read(mtableOffset + subjectRef * sizeof(uintptr_t) * 2 + sizeof(uintptr_t), &namePtr, sizeof(addr_t));
+      msection->read(mtableOffset
+         + messageEntryOffset(subjectRef, MessageTableField::Payload),
+         &namePtr, sizeof(addr_t));
 
       MemoryReader reader(msection);
       reader.seek((pos_t)(namePtr - (addr_t)msection->get(0)));
@@ -242,10 +251,14 @@ ref_t RTManager :: loadStrongSubject(ref_t weakRef, ArgumentAddressList& list)
    pos_t mtableOffset = MemoryBase::getDWord(msection, 0);
 
    for (ref_t subjectRef = 1; true; subjectRef++) {
-      if (MemoryBase::getDWord(msection, mtableOffset + subjectRef * MessageEntryLen) == weakRef) {
+      if (MemoryBase::getDWord(msection, mtableOffset
+         + messageEntryOffset(subjectRef, MessageTableField::Action)) == weakRef)
+      {
          // get the current signature
          addr_t signPtr = 0;
-         msection->read(mtableOffset + subjectRef * sizeof(uintptr_t) * 2 + sizeof(uintptr_t), &signPtr, sizeof(addr_t));
+         msection->read(mtableOffset
+            + messageEntryOffset(subjectRef, MessageTableField::Payload),
+            &signPtr, sizeof(addr_t));
 
          assert(signPtr != 0);
 
@@ -271,7 +284,9 @@ ref_t RTManager :: loadStrongSubject(ref_t weakRef, ArgumentAddressList& list)
       else {
          // check the end of the table
          addr_t namePtr = 0;
-         msection->read(mtableOffset + subjectRef * sizeof(uintptr_t) * 2 + sizeof(uintptr_t), &namePtr, sizeof(addr_t));
+         msection->read(mtableOffset
+            + messageEntryOffset(subjectRef, MessageTableField::Payload),
+            &namePtr, sizeof(addr_t));
 
          if (!namePtr)
             break;
@@ -289,8 +304,11 @@ ref_t RTManager :: loadSubject(ustr_t actionName)
    IdentifierString messageName;
    addr_t startPtr = (addr_t)msection->get(0);
    for (ref_t subjectRef = 1; true; subjectRef++) {
-      if (MemoryBase::getDWord(msection, mtableOffset + subjectRef * MessageEntryLen) == 0) {
-         pos_t namePtr = MemoryBase::getDWord(msection, mtableOffset + subjectRef * MessageEntryLen + sizeof(uintptr_t));
+      if (MemoryBase::getDWord(msection, mtableOffset
+         + messageEntryOffset(subjectRef, MessageTableField::Action)) == 0)
+      {
+         pos_t namePtr = MemoryBase::getDWord(msection, mtableOffset
+            + messageEntryOffset(subjectRef, MessageTableField::Payload));
          if (!namePtr)
             break;
 
@@ -336,7 +354,10 @@ addr_t RTManager :: retrieveGlobalStrAttribute(int attribute, ustr_t name)
 
 size_t RTManager :: loadClassName(addr_t classAddress, char* buffer, size_t length)
 {
-   uintptr_t namePtr = *(uintptr_t*)(classAddress - sizeof(uintptr_t) * 1 - elVMTClassOffset);
+   unsigned int classNameOffset = RuntimeLayout::offsetOf(sizeof(uintptr_t),
+      VMTPreHeaderField::ClassName);
+   uintptr_t namePtr = *(uintptr_t*)(classAddress - classNameOffset
+      - elVMTClassOffset);
 
    char* name = (char*)namePtr;
 
@@ -355,7 +376,8 @@ mssg_t RTManager :: loadWeakMessage(mssg_t message, bool vmMode)
    pos_t mtableOffset = vmMode ? 0 : MemoryBase::getDWord(msection, 0);
    MemoryReader reader(msection, mtableOffset);
 
-   reader.seek(reader.position() + actionRef * sizeof(uintptr_t) * 2);
+   reader.seek(reader.position()
+      + messageEntryOffset(actionRef, MessageTableField::Action));
 
    pos_t weakActionRef = reader.getPos();
 

@@ -117,7 +117,6 @@ inline void YGCollect(GCRoot* root, size_t start, size_t end, ObjectPage*& shado
          current.stack_ptr_addr = *ptr;
 
          ObjectPage* currentPage = getObjectPage(current.stack_ptr_addr);
-
          // ; check if it was collected
          current.size = currentPage->size;
          if (!(current.size & gcCollectedMask)) {
@@ -417,8 +416,6 @@ inline void FullCollect(GCTable* table, GCRoot* roots)
 
 void* SystemRoutineProvider::GCRoutine(GCTable* table, GCRoot* roots, size_t size, bool fullMode)
 {
-   //printf("GCRoutine %llx,%llx\n", (long long)roots, (long long)size);
-
    // ; collect yg roots
    ObjectPage* shadowPtr = (ObjectPage*)table->gc_shadow;
    // ; collect roots 

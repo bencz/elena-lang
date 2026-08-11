@@ -423,6 +423,8 @@ namespace elena_lang
 
       virtual void writeReference(MemoryBase& target, pos_t position, ref_t reference, pos_t disp,
          ref_t addressMask, ModuleBase* module = nullptr) = 0;
+      virtual void writeExternalReference(MemoryBase& target, pos_t position,
+         ustr_t referenceName, pos_t disp, ref_t addressMask) = 0;
       virtual void writeVMTMethodReference(/*MemoryBase& target, */pos_t position, ref_t reference, pos_t disp, mssg_t message,
          ref_t addressMask, ModuleBase* module = nullptr) = 0;
 
@@ -587,6 +589,7 @@ namespace elena_lang
 
       virtual pos_t getVMTLength(void* targetVMT) = 0;
       virtual addr_t findMethodAddress(void* entries, mssg_t message) = 0;
+      virtual addr_t findHiddenMethodAddress(void* entries, mssg_t message) = 0;
       virtual pos_t findMethodOffset(void* entries, mssg_t message) = 0;
       virtual pos_t findHiddenMethodOffset(void* entries, mssg_t message) = 0;
 

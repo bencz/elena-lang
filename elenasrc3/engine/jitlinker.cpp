@@ -312,6 +312,30 @@ void JITLinker::JITLinkerReferenceHelper :: writeSectionReference(MemoryBase* im
             break;
       }
    }
+   else if (currentMask == mskHMTMethodAddress) {
+      _owner->resolve(
+         _owner->_loader->retrieveReferenceInfo(sectionInfo->module,
+            currentRef, mskVMTRef, _owner->_forwardResolver),
+         mskVMTRef, false);
+
+      mssg_t message = _owner->createMessage(sectionInfo->module,
+         MemoryBase::getDWord(section, sectionOffset));
+      addr_t vaddress = _owner->resolveHiddenMTMethodAddress(
+         sectionInfo->module, currentRef, message);
+
+      switch (addressMask & mskRefType) {
+         case mskRef32:
+            ::writeVAddress32(image, imageOffset, vaddress, 0,
+               addressMask, _owner->_virtualMode);
+            break;
+         case mskRef64:
+            ::writeVAddress64(image, imageOffset, vaddress, 0,
+               addressMask, _owner->_virtualMode);
+            break;
+         default:
+            break;
+      }
+   }
    else {
       addr_t vaddress = _owner->resolve(_owner->_loader->retrieveReferenceInfo(sectionInfo->module, currentRef, currentMask,
          _owner->_forwardResolver), currentMask, false);
@@ -412,6 +436,26 @@ void JITLinker::JITLinkerReferenceHelper :: writeReference(MemoryBase& target, p
       }
    }
    else _references->add(position, VAddressInfo(reference, module, addressMask, disp));
+}
+
+void JITLinker::JITLinkerReferenceHelper :: writeExternalReference(
+   MemoryBase& target, pos_t position, ustr_t referenceName, pos_t disp,
+   ref_t addressMask)
+{
+   addr_t vaddress = _owner->_mapper->resolveReference(referenceName, mskExternalRef);
+
+   switch (addressMask & mskRefType) {
+      case mskRef32:
+         ::writeVAddress32(&target, position, vaddress, disp, addressMask,
+            _owner->_virtualMode);
+         break;
+      case mskRelRef32:
+         ::writeRelAddress32(&target, position, vaddress, disp, addressMask,
+            _owner->_virtualMode);
+         break;
+      default:
+         throw InternalError(errInvalidMachineCode);
+   }
 }
 
 void JITLinker::JITLinkerReferenceHelper :: writeMDataRef32(MemoryBase& target, pos_t position,
@@ -660,6 +704,15 @@ void JITLinker :: fixReferences(VAddressMap& relocations, MemoryBase* image)
             vaddress = resolveVMTMethodAddress(info.module, currentRef, info.message);
             break;
          }
+         case mskHMTMethodAddress:
+         {
+            resolve(_loader->retrieveReferenceInfo(info.module, currentRef,
+               mskVMTRef, _forwardResolver), mskVMTRef, false);
+
+            vaddress = resolveHiddenMTMethodAddress(info.module,
+               currentRef, info.message);
+            break;
+         }
          case mskVMTMethodOffset:
          {
             resolve(_loader->retrieveReferenceInfo(info.module, currentRef, mskVMTRef,
@@ -761,6 +814,20 @@ addr_t JITLinker :: resolveVMTMethodAddress(ModuleBase* module, ref_t reference,
 
       _staticMethods.add({ vmtAddress, message }, vaddress);
    }
+
+   if (_virtualMode)
+      vaddress |= mskCodeRef;
+
+   return vaddress;
+}
+
+addr_t JITLinker :: resolveHiddenMTMethodAddress(ModuleBase* module,
+   ref_t reference, mssg_t message)
+{
+   addr_t vmtAddress = resolve(_loader->retrieveReferenceInfo(module,
+      reference, mskVMTRef, _forwardResolver), mskVMTRef, false);
+   addr_t vaddress = _compiler->findHiddenMethodAddress(
+      getVMTPtr(vmtAddress), message);
 
    if (_virtualMode)
       vaddress |= mskCodeRef;

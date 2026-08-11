@@ -161,6 +161,7 @@ structure %CORE_GC_TABLE
 
   dq 0 // ; gc_lock               : +70h 
   dq 0 // ; reserved              : +78h 
+  dq 0 // ; gc_queue_sem          : +80h
 
 end
  

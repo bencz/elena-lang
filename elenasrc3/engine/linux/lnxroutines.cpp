@@ -404,3 +404,27 @@ void SystemRoutineProvider::GCSignalClear(void* handle)
 {
    ((EventImpl*)handle)->reset();
 }
+
+static pthread_mutex_t CollectionMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t CollectionCondition = PTHREAD_COND_INITIALIZER;
+static size_t CollectionGeneration = 0;
+
+void SystemRoutineProvider::GCWaitForCollection(GCTable* table)
+{
+   pthread_mutex_lock(&CollectionMutex);
+
+   size_t generation = CollectionGeneration;
+   while (generation == CollectionGeneration && table->gc_signal != 0)
+      pthread_cond_wait(&CollectionCondition, &CollectionMutex);
+
+   pthread_mutex_unlock(&CollectionMutex);
+}
+
+void SystemRoutineProvider::GCSignalCollectionEnd()
+{
+   pthread_mutex_lock(&CollectionMutex);
+   CollectionGeneration++;
+   pthread_mutex_unlock(&CollectionMutex);
+
+   pthread_cond_broadcast(&CollectionCondition);
+}

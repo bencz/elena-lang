@@ -441,6 +441,8 @@ namespace elena_lang
    constexpr auto errUnknownBaseClass              = 604;
    constexpr auto errNoDispatcher                  = 605;
    constexpr auto errClosureError                  = 606;
+   constexpr auto errInvalidECode                  = 607;
+   constexpr auto errInvalidMachineCode            = 608;
 
    constexpr auto infoNewMethod                    = 701;
    constexpr auto infoCurrentMethod                = 702;

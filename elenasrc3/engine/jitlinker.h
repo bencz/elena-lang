@@ -119,6 +119,8 @@ namespace elena_lang
 
          void writeReference(MemoryBase& target, pos_t position, ref_t reference, pos_t disp,
             ref_t addressMask, ModuleBase* module) override;
+         void writeExternalReference(MemoryBase& target, pos_t position,
+            ustr_t referenceName, pos_t disp, ref_t addressMask) override;
          void writeVMTMethodReference(/*MemoryBase& target, */pos_t position, ref_t reference, pos_t disp, mssg_t message,
             ref_t addressMask, ModuleBase* module) override;
 
@@ -192,6 +194,8 @@ namespace elena_lang
       void fixReferences(VAddressMap& relocations, MemoryBase* image);
 
       addr_t resolveVMTMethodAddress(ModuleBase* module, ref_t reference, mssg_t message);
+      addr_t resolveHiddenMTMethodAddress(ModuleBase* module, ref_t reference,
+         mssg_t message);
       pos_t resolveVMTMethodOffset(ModuleBase* module, ref_t reference, mssg_t message);
       pos_t resolveHiddenMTMethodOffset(ModuleBase* module, ref_t reference, mssg_t message);
 

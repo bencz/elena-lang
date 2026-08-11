@@ -150,6 +150,8 @@ namespace elena_lang
       static void GCSignalStop(void* handle);
       static void GCWaitForSignal(void* handle);
       static void GCWaitForSignals(size_t count, void* handles);
+      static void GCWaitForCollection(GCTable* table);
+      static void GCSignalCollectionEnd();
 
       static bool CopyResult(addr_t value, char* output, size_t maxLength, size_t& copied);
 

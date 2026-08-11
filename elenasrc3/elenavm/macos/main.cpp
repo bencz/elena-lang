@@ -99,6 +99,12 @@ void printError(int errCode)
       case errCommandSetAbsent:
          printf("ELENAVM: cannot initialize core");
          break;
+      case errInvalidECode:
+         printf("ELENAVM: invalid e-code tape");
+         break;
+      case errInvalidMachineCode:
+         printf("ELENAVM: invalid machine instruction");
+         break;
       default:
          printf("ELENAVM: Unknown error %d\n", errCode);
          break;

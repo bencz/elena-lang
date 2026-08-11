@@ -535,9 +535,9 @@ namespace elena_lang
    // --- ByteCodePattern ---
    struct ByteCodePattern
    {
-      ByteCode             code;
-      ByteCodePatternType  argType;
-      int                  argValue;
+      ByteCode             code = ByteCode::None;
+      ByteCodePatternType  argType = ByteCodePatternType::None;
+      int                  argValue = 0;
 
       bool operator ==(ByteCode code) const
       {

@@ -2312,8 +2312,9 @@ procedure __thread_create(self,arg,flags,stackSize,ptr)
   // ; == enter GC critical section ==
   system      6 
 
+  // ; arg is a pointer; flags and stackSize are integer values
   call extern:CreateThreadLA (
-     *$arg, 
+     *$arg,
      procedure:"system'core_routines'thread_start",
      *stackSize,
      *flags)
@@ -3001,7 +3002,7 @@ procedure thread_func_invoker(arg)
 
   extopen    (2),[]
 
-  system      9  // ; NOTE : mark the thread as collectable
+  system      9  // ; mark the initialized thread as collectable
 
   snop
   peek       fp:arg
@@ -3017,7 +3018,6 @@ end
 
 procedure thread_start(index)
 
-//;  system      10 // ; prolog
   extopen     [arg1],[ptr,envptr,ex_struct:ex_struct_size]
 
   xloadarg    fp:index
@@ -3052,7 +3052,7 @@ procedure thread_start(index)
   unhook
 
   // ; == enter GC critical section ==
-  system      8  // ; NOTE : mark the thread as non-collectable, so no one will wait for it
+  system      8  // ; mark the exiting thread as non-collectable
   system      6
 
   call extern:UninitThreadLA (
@@ -3065,7 +3065,6 @@ procedure thread_start(index)
   call extern:ExitThreadLA (0)
 
   extclose    []
-//;  system      11 // ; epilog
   quit
 
 end

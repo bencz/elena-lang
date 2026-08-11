@@ -4,9 +4,7 @@ import system'runtime;
 
 // MTA test harness
 //
-// Four runtime limitations shape everything here
-//  * Thread.join is unusable on Linux, it passes one argument to
-//    pthread_join, so Latch stands in for it
+// Runtime limitations shape the harness
 //  * Thread.sleep is a no-op below one second, nothing may use it to
 //    order events
 //  * no wait with a deadline exists in EventHandle, so the only watchdog is the
