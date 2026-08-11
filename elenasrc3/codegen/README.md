@@ -1,420 +1,450 @@
 # ELENA code generation
 
-This directory contains the target-independent runtime model, EIR, e-code decoding,
-and target code generators. E-codes remain the ELENA input IR. EIR is the optimizing
-IR. `machine.h` defines the target-independent value, effect, and logical relocation
-vocabulary used at the machine boundary. Runtime data references are part of the
-shared runtime contract. Each target owns its physical machine IR after instruction
-selection.
+This directory contains the new native code-generation infrastructure used to replace the preassembled routines and e-code implementations in the legacy core binaries. It is shared by the JIT and the executable-image toolchain: both paths must agree on ELENA's managed ABI, platform ABI, runtime layouts, symbolic relocations, GC safepoints, and MTA synchronization protocol.
 
-The x86-family backend uses the following boundary:
+The design has three deliberately different intermediate representations:
 
-- `x86/machine.*` owns physical x86 and AMD64 registers, selected opcodes, operands,
-  instruction sequences, and target-specific verification;
-- `x86/lowering.*` selects those physical operations from verified EIR;
-- `x86/encoder.*` encodes selected operations and target relocations;
-- `x86/runtimecore*` emits the x86-family implementations of runtime operations.
+| Representation | Purpose | Target dependence | Current form |
+| --- | --- | --- | --- |
+| e-code | Compact serialized ELENA instruction stream consumed by the VM/JIT | Target-independent, but historically coupled to core inline variants | `ByteCode`, `ByteCommand`, and decoded `ECodeProcedure` |
+| EIR | Canonical semantic IR used to make types, effects, control flow, runtime operations, and symbolic operands explicit | Target-independent | Typed instructions, values, locations, basic blocks, terminators, and phi nodes |
+| physical MIR | Selected machine operations ready for target verification and encoding | Architecture-family-specific | `x86::Sequence` for i386 and AMD64 |
 
-A physical MIR is not shared between unrelated instruction sets. ARM64 and PPC64LE
-reuse EIR, machine effects, runtime contracts, layouts, and protocols, then provide
-their own physical instruction selection and encoding. Generic code must not include
-a target directory; each backend may include the generic root.
+E-code remains an IR. EIR does not replace it as the compiler's serialized interchange format; it provides the semantic and optimization boundary that e-code was not designed to provide. Physical MIR is not shared between unrelated instruction sets. ARM64 and PPC64LE will consume the same EIR and runtime contracts, but each architecture must own its register set, instruction selection, machine verifier, and encoder.
 
-## Source organization
+## Architectural overview
 
-The code generator has no 80-column limit. A declaration or expression stays on one
-line while that is the clearest representation; a line is split only to expose
-semantic hierarchy. Artificially narrow formatting is not accepted.
+The normal generated e-code path is:
 
-Validation, state preparation, instruction emission, relocation, and final
-verification are separate phases. A lowering routine represents one e-code or one
-named phase of an e-code. Large opcode dispatchers select those routines; they do
-not contain the implementation of several unrelated operations.
+```text
+ELENA source
+    -> compiler e-code tape
+    -> ECodeDecoder: validated instructions, blocks, and edges
+    -> ECodeOperandResolver / semantic providers
+    -> EIRFunction
+    -> EIRVerifier
+    -> target instruction selection
+    -> physical MIR
+    -> target MIR verifier
+    -> target encoder
+    -> symbolic relocation records
+    -> JIT linker / image linker
+    -> executable machine code
+```
 
-Blank lines separate logical phases and synchronization boundaries. Positional
-initializers are reserved for types whose fields are self-evident at the call site.
-Runtime layouts, ABI descriptions, instructions, relocations, blocks, and edges use
-named fields or named construction helpers. Numeric field offsets are forbidden
-when a typed runtime-layout field exists.
+Runtime-core procedures use a related but separate path because operations such as `GC_COLLECT`, `GC_ALLOCPERM`, `PREPARE`, `THREAD_WAIT`, and `VEH_HANDLER` are callable runtime entries rather than ordinary e-code instructions:
 
-Comments document e-code identities, machine encodings, ABI obligations, and
-non-obvious concurrency invariants. Comments do not restate ordinary C++ control
-flow.
+```text
+RuntimeOperation + RuntimeSpec
+    -> RuntimeCoreProtocolProvider
+    -> ordered target-independent runtime actions and effects
+    -> target RuntimeCoreEncoder
+    -> platform ABI calls, machine code, and symbolic runtime relocations
+    -> generated core entry
+```
 
-`common/runtimelayout.h` is the single structural layout vocabulary shared by the
-engine, GC/MTA protocols, and every code generator. Fixed fields are addressed by
-typed names such as `GCDataField::PermanentCurrent` and
-`ThreadContentField::StackFrame`; backends must not reproduce their word indices.
-The system environment deliberately supports its hybrid native-word and serialized
-32-bit layout. Physical spill slots remain private to the backend that owns the
-stack convention.
+This distinction matters. An e-code that calls the collector lowers to `RuntimeOperation::Collect` and a typed runtime-call relocation. The implementation of the collector entry itself is generated by the runtime-core path. Reproducing the old inline call sequence inside every e-code lowering would duplicate the ABI, GC, and MTA contracts and is forbidden.
 
-`ECodeOperandResolver` owns logical frame, stack, and VMT index normalization.
-`ECodeRuntimeProvider` owns the runtime operation required by an e-code.
-`ECodeEIRProvider` owns e-code interpretation, runtime-mode choices, and EIR
-construction. `FrameEIRProvider` owns frame alignment and the semantic frame
-sequence for every target. These classes are architecture-independent and are
-tested with i386, AMD64, ARM64, and PPC64LE target descriptions.
+## Current integration boundary
 
-`EIRLocation` names the managed value, object, cached arguments, wide value,
-allocation size, frame, and stack without naming a physical register. Location
-operands are the explicit-state input form of EIR. SSA construction replaces their
-definitions and uses with EIR values and phi nodes; instruction selection maps any
-locations that remain at the machine boundary through the target managed ABI.
-Neither an e-code provider nor an optimization pass may assign an x86, ARM64, or
-PPC64LE register to an `EIRLocation`.
+`ECodeDecoder` decodes and validates an entire procedure. It records instruction boundaries, basic blocks, direct and indirect edges, fallthrough, exits, and branch targets in `ECodeProcedure`. `JITCompiler::compileTape`, however, still visits the decoded instructions in tape order and invokes a generator for each instruction.
 
-The x86-family lowering contains no `ByteCode` reference. Its `ByteCommand` entry
-point is an integration adapter that immediately invokes the target-independent EIR
-provider. Scalar, object, control-transfer, allocation, frame, managed-slot,
-runtime, method, dispatch, and exception semantics are selected only from verified
-EIR and generic metadata. The backend may inspect EIR effects, operands, allocation
-properties, and runtime contracts, but may not reconstruct the source e-code or
-choose a runtime policy from an inline number. `rg ByteCode codegen/x86` returning
-no matches is a mandatory migration gate.
+For a migrated instruction, the x86-family integration adapter currently performs:
 
-Backend directories may own physical registers, instruction forms, addressing-mode
-selection, spill placement, machine labels, relocations, TLS instruction spelling,
-and concrete ABI save/restore sequences. They may not own e-code decoding, logical
-operand scaling, frame composition, GC or MTA protocol ordering, collection kind,
-runtime-call selection, object-size policy, or source-level control flow.
+```text
+one ByteCommand -> one semantic EIRFunction -> one physical x86::Sequence -> encoded bytes
+```
 
-Dispatch control flow is target-independent. `DispatchControlFlow` owns the phases,
-conditional edges, terminal edges, receiver-list traversal, overload advancement,
-argument matching, ancestor walking, success restoration, and fallthrough.
-`DispatchEIRProvider` materializes and verifies that graph as EIR before physical
-selection. A backend owns only the realization of those phases in its registers,
-addressing modes, spills, and branch instructions.
+Some semantically large instructions, notably dispatch, construct a multi-block EIR graph with explicit internal control flow. This is still an instruction-local graph, not yet a whole-procedure EIR graph.
 
-`RuntimeCoreProtocol` defines architecture-independent runtime actions, ordering,
-effects, and threading requirements. Its action mask is identical for x86, AMD64,
-ARM64, and PPC64LE. Target directories contain only ABI lowering, register choices,
-instruction selection, encoding, and target relocation forms. Supporting an action
-on one target does not authorize removing the corresponding legacy block for another
-target.
+Consequences of the current boundary:
 
-## Migration rules
+- instruction semantics, ABI behavior, effects, relocations, and complex local control flow can already be verified independently of assembly;
+- EIR can represent SSA values and phi nodes, but no automatic whole-procedure SSA construction pass exists yet;
+- there is no general dominator, liveness, global value numbering, global register allocation, or optimization pass manager yet;
+- optimizations that require visibility across adjacent e-codes must wait for whole-procedure EIR construction, or be implemented only when their scope is provably local;
+- `ECodeProcedure` is the correct source of the future whole-procedure CFG. The tape must not be decoded a second time inside a target backend.
 
-Every operand must be classified before lowering as one of:
+The intended evolution is to build one EIR function from the decoded procedure, verify it, run target-independent transformations, select physical MIR, allocate registers, and encode. The current per-command adapter is a migration bridge, not the final optimization boundary.
 
-- literal;
-- logical index;
-- physical displacement;
-- module reference;
-- module message;
-- runtime symbol;
-- implicit JIT state.
+## e-code
 
-Lowering must preserve the semantic class. Module references, messages, runtime
-symbols, and external symbols must remain relocations until the linker resolves
-them. Raw byte equality is meaningful only after this resolution.
+The authoritative opcode enumeration is `ByteCode` in `engine/bytecode.h`. Code-generation code must use the enum names rather than treating opcode bytes as undocumented integers. A numeric identity belongs in a nearby comment when it helps correlate a generated implementation with a removed assembly block.
 
-Runtime operations must declare their heap, global, TLS, synchronization,
-safepoint, root-relocation, call, allocation, and exception effects. External calls
-must be emitted through the selected platform ABI, including argument locations,
-stack alignment, shadow space, preserved managed roots, and import relocation form.
+`ecode.h` and `ecode.cpp` provide four distinct services:
 
-Raw instruction bytes are documented at the emission site. A phase identifies the
-runtime action being lowered, and every byte sequence identifies its mnemonic and
-operands. ABI-specific argument moves and stack adjustments identify the ABI they
-implement. Relocation comments name the symbolic operand instead of presenting its
-placeholder bytes as a literal address.
+- `ECodeProvider` describes operand count, encoded size, control-flow behavior, block properties, and feature bits for every recognized opcode;
+- `ECodeDecoder` validates a serialized procedure and produces instructions, blocks, and edges;
+- `ECodeOperandResolver` converts source operands into their semantic units, including logical frame slots, stack slots, VMT indices, and physical displacements where the contract genuinely requires one;
+- `ECodeMigrationProvider` declares which inline variants must be generated in STA and MTA configurations.
 
-The legacy assembly is a behavioral reference, not a specification. Its algorithm
-must be checked against the runtime contract before migration.
+`ECodeFeature` and `ECodeProperty` are bitmasks. New orthogonal capabilities and properties should continue to use bitmasks when combinations are meaningful. Mutually exclusive states remain enums.
 
-Pointer-size multiplication is reserved for genuinely dynamic sizes and indices.
-Fixed object, VMT, message-table, GC, thread, TLS, and system-environment positions
-must use the shared typed layout. A new architecture extends instruction selection
-and ABI lowering against this contract instead of copying numeric displacements.
+An e-code operand must be classified before EIR construction as one of:
 
-A legacy block can be removed for a target variant only after:
+- a literal value;
+- a logical slot or index;
+- a physical displacement already defined by the e-code contract;
+- a module reference;
+- a message identity;
+- a runtime symbol or operation;
+- implicit JIT state supplied through `ECodeLoweringContext`.
 
-1. the generated operation is complete for that architecture, threading mode, and ABI;
-2. relocation and ABI tests pass;
-3. the corresponding core assembly builds without the block;
-4. a clean compiler build links and passes the system tests with that core binary.
+This classification must survive lowering. A module reference must not become an arbitrary integer merely because the encoder eventually writes an integer-sized placeholder.
 
-When a required suite already has a reproducible baseline failure, the generated
-path must reach the same or a later point without a legacy fallback, and the baseline
-failure must be recorded. A known baseline failure is never reported as a passing
-gate.
+### Inline variants and migration masks
 
-Incremental builds are insufficient after changing a shared C++ interface because
-the legacy makefiles do not track all header dependencies.
+Legacy core images can contain several implementations of one opcode, indexed by the high byte of the inline identity. Migration is therefore tracked as a bitmask, not as a single boolean.
 
-E-codes with multiple inline variants are migrated with a bit mask. Only generated
-variants are excluded from the legacy core image; all other variants remain loaded
-until their own lowering and validation gates are complete. If variant zero is
-generated, an absent non-generated variant is kept null instead of inheriting an
-unrelated byte sequence; an emitted unsupported variant fails with its full
-`variant << 8 | opcode` identity.
+For an opcode `code` and inline `variant`, the diagnostic identity is:
 
-## Runtime core status
+```text
+(variant << 8) | code
+```
 
-`GC_ALLOC` is generated for x86 and AMD64 in STA and MTA modes.
-`GC_ALLOCPERM` is generated for x86 and AMD64 in STA and MTA modes. Its x86-family
-assembly blocks have been removed. The MTA fast path and external collector adapter
-are structurally tested. The remaining MTA system-suite failures are recorded in the
-validation section and are never hidden by restoring a removed assembly body.
+`JITCompiler::registerMigratedInline` registers exactly one generated variant. `registerMigratedInlines` registers a mask. `ECodeMigrationProvider::requiredInlineVariants` describes the variants required by a runtime profile, and `supportsMigrationProfile` rejects an incomplete generated profile.
 
-`PREPARE` is generated for x86 and AMD64 with System V and Windows ABI handling.
-`THREAD_WAIT` is generated for x86 and AMD64 MTA cores. The generated routine
-revalidates the collection state under the GC lock, publishes and restores the frame
-chain, marks parked threads safe, and waits on a collection-generation barrier. The
-barrier is implemented by the Linux, macOS, and Windows runtimes. The MTA assembly
-procedures have been removed; STA emits the corresponding no-op routine, so no x86
-core retains a `THREAD_WAIT` assembly body.
+Only a registered and validated variant may be removed from a legacy core. Variant zero must never be silently reused for a missing nonzero variant. An unsupported emitted variant fails closed with its complete identity.
 
-`GC_COLLECT` is generated for x86 and AMD64 in STA and MTA modes. The generic runtime
-protocol selects frame publication, mutator parking, thread enumeration, wait-list
-coordination, root-lock acquisition, static, permanent, TLS, and frame roots, the
-collector call, mutator resumption, and lock release. The x86 backend lowers this
-protocol for System V and Windows ABIs, including stack alignment, shadow space,
-managed-root preservation, and external relocation forms. All four x86-family
-assembly bodies have been removed. MTA Mach-O remains rejected until its current-
-thread TLS contract is implemented.
+## EIR
 
-The MTA parking protocol enters the safe region before publishing the stop signal,
-waits on the collection-generation barrier, and restores the previous thread state
-only after the barrier returns. A later collection can therefore enumerate the
-parked frame but cannot add that mutator to its wait list. Waiting on the collector's
-per-thread event is forbidden because a later table scan can reset or reuse it.
+EIR is the target-independent semantic IR declared in `eir.h`. It is intentionally independent from physical registers, instruction encodings, object-file formats, and host compilation macros.
 
-`GCDataField::QueueSemaphore` preserves the runtime table ABI introduced by the
-upstream GCX semaphore fix. The generated x86-family core does not duplicate that
-semaphore protocol: its collection-generation barrier and safe-region publication
-provide the same race guarantee without restoring `GC_COLLECT` or `THREAD_WAIT`
-assembly bodies. All target core tables reserve the field so x86, AMD64, AArch64,
-and PPC64LE retain one shared `GCTable` layout.
+### Function, blocks, and instructions
 
-`XHookDPR` (`0xE6`) lowers to the generic `ExceptionHook` EIR operation. The handler
-target remains typed as either a procedure label or a module reference until the
-linker resolves it. The x86-family selector materializes the exception structure,
-loads the previous handler from STA runtime data or MTA TLS, publishes the catch
-frame, catch level, catch address, and previous link, then makes the new record
-current. Its four i386 and AMD64 STA/MTA inline bodies have been removed.
-`ModuleReferenceValue` carries the actual symbolic reference produced by EIR;
-`ModuleReference` remains the transitional source-argument relocation used by older
-selectors. The exception selector never converts its reference back into an e-code
-operand ordinal.
+`EIRFunction` owns flat operand, instruction, and block lists. Each `EIRBlock` names a contiguous instruction range. Every block ends in an instruction carrying `EIREffect::Terminator`, and no instruction may follow a terminator in the same block.
 
-`VEH_HANDLER` (core reference `0x10003`) is a generated runtime-core entry rather
-than an e-code. The OS signal or exception bridge enters it with the ELENA error in
-the accumulator and the faulting instruction in the managed value register. The
-entry preserves that instruction in cached argument zero, moves the error to the
-managed value register, resolves the current thread through STA data or the target
-TLS model, and transfers to `eh_critical`. The generated AMD64 MTA ELF path replaces
-an empty Linux branch in the legacy `corex60.asm`; it is not an as-is translation of
-that defect. All four x86-family procedure bodies have been removed.
+An `EIRInstruction` contains:
 
-`System 3` thread startup is lowered to MIR for x86 and AMD64. TLS access is selected
-from the target, thread slots use the runtime layout and an explicit scaled store,
-and stack root/frame offsets come from `ThreadContentLayoutSpec`. Variant 3 has been
-removed from both MTA assembly cores.
+- an `EIROpcode` describing the semantic operation;
+- an `EIREffect` bitmask describing observable behavior and scheduling constraints;
+- an optional typed result value;
+- a contiguous operand range;
+- a source offset used to preserve provenance from the e-code tape.
 
-`System 4` process startup is lowered to target-aware MIR for x86 and AMD64. FPU
-initialization, native stack capture, STA stack-root publication, the generated
-`PREPARE` call, and the System V synthetic entry frame are explicit. FreeBSD keeps
-its distinct entry-stack source. Variant 4 has been removed from the STA and MTA
-assembly cores.
+The opcode vocabulary covers scalar arithmetic, floating point, memory, object and VMT access, calls, dispatch, allocation, GC, TLS, synchronization, frame management, exceptions, and control-flow terminators. A backend must select from this vocabulary; it must not rediscover which source e-code produced an instruction.
 
-`System 6` and `System 7` acquire and release the MTA GC lock through generic
-`GCLockAcquire` and `GCLockRelease` EIR operations. The x86-family selector uses a
-typed `GCDataLock` relocation and atomic 32-bit compare-exchange/exchange-add
-sequences for i386 and AMD64. The variants are valid only in MTA mode and no longer
-depend on a legacy system-inline body.
+### Types
 
-`System 8` and `System 9` safe-region transitions are lowered to MIR for x86 and
-AMD64. Local labels and branches, atomic compare-exchange/exchange-add, GC data
-relocations, TLS access, and the `WaitForGC` safepoint call are explicit operations
-with verified effects. In STA mode both transitions lower to an explicit no-op.
-Both variants have been removed from the MTA assembly cores.
+`EIRType` distinguishes semantic values that may have the same physical width. In particular, `Reference`, `Pointer`, `VMT`, `Message`, `Word`, and fixed-width integers are not interchangeable simply because a given target stores them in one machine word.
 
-`System 0`, `System 1`, and `System 2` are generated for x86 and AMD64. Variant zero
-is the neutral system operation. Variants one and two select minor or full
-collection through `RuntimeOperation::Collect`; MTA acquires the GC lock atomically,
-and both architectures preserve the managed object register across the call. Their
-four STA/MTA assembly implementations have been removed.
+This distinction protects several contracts:
 
-`XCreateR` is lowered for x86 and AMD64 through `AllocatePermanent`. The allocation
-size is overflow-checked, pointer-size scaled, target-aligned, and the VMT remains a
-linker relocation. `LLoadSI`, `LoadSI`, and `XLoadArgFI` preserve the distinct long,
-signed integer, cached-argument, stack-slot, and frame-slot semantics on both
-architectures. Their x86 and AMD64 assembly blocks have been removed.
+- managed references may be observed or relocated by the GC;
+- pointers may address frames, runtime data, or native storage without being managed objects;
+- VMT values participate in method lookup and hidden-table selection;
+- messages remain symbolic ELENA message identities;
+- `Word` follows target width while `Int32` and `UInt32` do not.
 
-`NewIR`, `NewNR`, `XNewNR`, `CreateR`, `CreateNR`, and `XCreateR` share the generic
-`AllocationSpec`. It records fixed versus dynamic sizing, reference versus binary
-payloads, permanent allocation, alignment-checked sizes, payload masks, element
-width, and the concrete symbolic VMT reference. The x86-family selector owns only
-register assignment, address forms, runtime-call encoding, and relocation spelling.
-Because EIR already resolved the symbolic operand, generated allocation code uses
-`ModuleReferenceValue`; it never converts the VMT back to the legacy argument-one
-or argument-two relocation marker.
+### Operands and locations
 
-`XDispatchMR` is described by a target-independent dispatch contract. The contract
-separates direct and virtual targets, fixed and variadic signatures, direct overload
-tables and receiver-provided table chains, and the alternative VMT table. Argument
-origin and fixed arity are derived from the message bit fields, not from legacy
-inline numbers. `VMTLayoutSpec` owns the VMT header, parent link, method-table entry,
-and overload metadata entry sizes used by every backend.
+`EIROperandKind` separates values, block references, immediates, symbolic references, and logical managed locations.
 
-The fixed, variadic, direct-list, and receiver-list forms are generated for i386 and
-AMD64. `DispatchControlFlow` describes list traversal, overload traversal, argument
-matching, parent traversal, success, failure, and indirect transfer. The variadic
-sentinel loop is represented by explicit EIR blocks instead of being hidden inside a
-target emitter. `DispatchFrameLayout` assigns logical object, list-index, signature-
-cursor, and argument-count slots without encoding a pointer size.
+`EIRLocation` names architectural roles without assigning physical registers:
 
-The x86-family selector consumes the EIR blocks and terminators and owns only the
-physical registers, scaled addressing, stack displacements, relocations, branches,
-and instruction selection. The generated paths preserve cached managed arguments,
-resolve MData and `VOIDPTR` through logical relocations, match nil and inherited
-argument types, restore the message on fallthrough, and branch to the selected
-direct target. `0FA`, `5FA`, `9FA`, and `AFA` are registered as migrated and have
-been removed from both x86-family STA cores. The rebuilt core binaries and the AMD64
-and i386 system suites validate the absence of the four assembly bodies. ARM64 and
-PPC64LE keep their architecture-specific definitions until those JIT backends gain
-physical EIR selectors; their explicitly unfinished dispatch bodies are not a
-semantic reference.
+- managed value and managed object;
+- cached arguments zero and one;
+- allocation size;
+- low and high halves of a wide value;
+- stack and frame pointers;
+- system environment.
 
-`DispatchMR` uses the same overload and argument-matching graph, but its EIR keeps
-the selected method slot distinct from a direct code pointer. The success path loads
-the receiver VMT, optionally selects the hidden method table from the typed VMT size
-and entry layout, resolves the final code pointer, and only then performs the
-indirect branch. The x86-family selector realizes this with an indexed load followed
-by the existing register branch, so no architecture opcode was added solely to
-imitate the legacy memory-jump spelling. Normal `0FB/5FB` and alternative-table
-`6FB/BFB` are registered as migrated and removed from the i386 and AMD64 STA cores.
-Both cores rebuild without those variants, AMD64 passes the system suite, and i386
-reaches its documented post-suite shutdown failure.
+Locations are the explicit-state form used by much of the current migration path. They preserve the existing managed-machine contract while keeping it independent from x86 register names. A future SSA construction pass may replace eligible location definitions and uses with `EIRValue` identities. A target selector maps locations that remain at the machine boundary through its managed ABI.
 
-`VCallMR` (`0xFC`) and `VJumpMR` (`0xEC`) share the target-independent virtual
-method contract in `method.h`. The EIR represents receiver-VMT loading, a symbolic
-VMT/HMT method-offset relocation, optional hidden-table selection, final code-
-pointer resolution, and call or tail transfer as distinct operations. Method
-offsets remain linker symbols carrying the class and message identity; no backend
-converts them into an untyped integer before relocation.
+Neither an e-code provider nor a target-independent optimization may assign an x86, ARM64, or PPC64LE register to an `EIRLocation`.
 
-The x86-family selector lowers that contract with the ELENA managed ABI, independently
-of the host external ABI. Indirect calls conservatively declare heap reads and
-writes, safepoint and exception effects; the object register remains the managed
-receiver. Both call and jump load the `address` field selected by
-`VMTTableField::FirstMethod`. This intentionally fixes the legacy `VJumpMR` bodies,
-which used `findMethodOffset` but transferred through the entry's `message` field.
-Normal variant `0` and alternative-HMT variant `6` are registered as migrated and
-removed from the i386 and AMD64 cores. ARM64 and PPC64LE retain their bodies until
-their physical selectors consume the same EIR contract.
+### SSA and phi nodes
 
-All compiler and VM build descriptions, including ARM64, PPC64LE, macOS, BSD, and
-Visual Studio projects, compile the generic method contract even though only i386
-and AMD64 currently select machine instructions for it. Both x86-family cores
-rebuild without the eight legacy blocks. The AMD64 STA suite passes; i386 reaches
-its documented post-suite shutdown failure. AMD64 MTA passes and exits normally;
-i386 MTA reaches the passing marker but has a nondeterministic shutdown failure.
+EIR values have unique numeric identities and explicit types. `EIRVerifier` rejects duplicate definitions and undefined or mistyped value uses. `EIROpcode::Phi` accepts predecessor-block/value pairs, must appear before non-phi instructions in its block, must cover every predecessor exactly once, and must use values matching the result type.
 
-`CallR` (`0xB0`), `CallVI` (`0xB1`), `JumpVI` (`0xB5`), `JumpMR` (`0xED`), and
-`CallMR` (`0xFD`) share the generic managed-method transfer contract. Symbol calls
-carry a typed code reference; indexed transfers resolve the address field from the
-receiver VMT using `VMTTableField::FirstMethod` and `EntryEnd`; statically selected
-methods carry the class, message, transfer kind, and VMT/HMT selection through EIR.
-The x86-family selector emits relative managed calls or tail transfers and declares
-the same heap, safepoint, and exception effects as indirect managed calls.
+These rules make EIR capable of representing SSA. They do not imply that every current EIR function is in SSA form: location operands are still legal, and there is no automatic SSA construction or destruction pass. Until those passes exist, documentation and code must say "SSA-capable" rather than claiming a complete SSA pipeline.
 
-HMT direct calls use `HMTMethodAddress`, a distinct linker relocation resolved from
-the hidden entry's address field. They no longer reinterpret `HMTMethodOffset` as a
-code address, as the legacy `loadMROp` path did. All five e-codes are registered as
-migrated and their ten i386/AMD64 STA blocks are removed. Both cores rebuild without
-the blocks; the AMD64 system suite passes and i386 passes every test body before its
-documented shutdown failure. ARM64 and PPC64LE retain their bodies until their
-physical selectors implement this contract.
+### Effects
 
-`MovEnv` (`0x05`), `LoadV` (`0x0C`), `XCmp` (`0x0D`), `PeekR` (`0x84`), and
-`StoreR` (`0x85`) form the runtime-data and module-reference batch. `MovEnv` uses a
-typed `SystemEnvironment` runtime-data relocation, with the linker selecting the
-platform-width rdata relocation. `LoadV` composes the argument bits from the current
-message with the action bits stored in the receiver, while `XCmp` compares that
-stored message as a 32-bit value on both managed ABIs. The physical MIR includes a
-real register `Or` operation; no arithmetic substitute is used.
+`EIREffect` is a bitmask because one operation may simultaneously read the heap, write global state, call native code, synchronize, reach a safepoint, and terminate a block. The current effects are:
 
-Module static loads and stores first materialize the typed module-reference address
-and then perform a managed-word load or store. This gives i386 and AMD64 one semantic
-lowering while retaining their different address widths and encodings. All five
-e-codes are registered as migrated, their ten legacy blocks are removed, and tests
-verify the MIR sequence, exact machine bytes, relocation kind, and relocation slot.
-Both AMD64 suites pass and exit normally. Both i386 suites reach the passing marker
-before their distinct shutdown faults. No legacy fallback is restored to conceal
-either failure.
+- heap, frame, TLS, and global reads or writes;
+- calls and allocation;
+- safepoints and throws;
+- synchronization and volatile access;
+- block termination.
 
-Parameterized scalar operations `Shl`, `Shr`, `MovN`, `AddN`, `SubN`, `AndN`,
-`OrN`, `MulN`, `CmpN`, `MovM`, `SetR`, and `XSaveN` are decoded into EIR operations
-over logical managed locations. `SetR`, `PeekR`, and `StoreR` carry the actual
-module reference through `ModuleReferenceValue`; they no longer encode a source
-argument ordinal for the linker to reinterpret. Shift-count masking is part of the
-generic e-code contract, while register width and instruction spelling remain in
-the physical selector.
+Effects are correctness metadata, not optional optimization hints. A transformation must preserve their ordering constraints. Calls that may collect must retain safepoint and root-relocation semantics through the machine boundary. Synchronization and volatile operations must never be reordered as ordinary memory traffic.
 
-Managed slot operations `SaveDP`, `StoreFI`, `SaveSI`, `StoreSI`, `XFlushSI`,
-`XRefreshSI`, `PeekFI`, `PeekSI`, `GetI`, `XStoreI`, `LSaveDP`, `LLoadDP`,
-`LLoadSI`, `LoadSI`, `XLoadArgFI`, `SetDP`, `SetFP`, `SetSP`, `LoadDP`, and
-`XCmpDP` are normalized and lowered to EIR before x86-family selection. The generic
-target contract selects cached arguments versus stack slots and records signed,
-native-word, reference, and 64-bit accesses explicitly. The i386 selector alone
-decomposes 64-bit values into its managed low/high register pair; AMD64 selects a
-single 64-bit location. None of these e-codes remains in the four x86-family core
-assembly files.
+### Verification
 
-`ExtOpenIN` and `ExtCloseN` external frames are generated from one parameterized
-EIR operation for x86 and AMD64. The selector saves the platform nonvolatile state,
-preserves Windows home arguments or System V register arguments, links and restores
-the GC-visible frame chain through STA data or MTA TLS, initializes local slots, and
-restores the native ABI frame. All twelve open variants and both close variants have
-been removed from the four x86 assembly cores. MTA Mach-O remains rejected until a
-native current-thread TLS access contract is available. `FrameEIRProvider` aligns
-managed slots and raw storage from `TargetSpec::managedABI`; the same normalized
-layout is used for scope accounting and physical selection, so open and close remain
-symmetric for odd argument counts and non-aligned local sizes.
+`EIRVerifier` checks structural and semantic invariants before target selection, including:
 
-External-frame closing follows the managed links emitted by opening before selecting
-the saved native frame. It does not advance linearly from `RBP`/`EBP`: the raw local
-area is variable-sized, and treating it as a fixed scaffold restores the thread frame
-and callee-saved registers from unrelated slots after a worker returns.
+- complete and non-overlapping block ranges;
+- exactly one final terminator per block;
+- valid result identities and operand ranges;
+- type-correct value uses;
+- valid block targets;
+- predecessor-complete phi nodes;
+- operation-specific dispatch, method, frame, exception, stack-reference, and memory contracts.
 
-`ExternalFrameLayoutProvider` is the single x86-family description of the saved
-register order, caller-stack versus saved-register argument storage, and managed
-frame scaffold. `XLoadArgFI` derives its frame base from this target ABI description;
-it never uses host preprocessor macros or a duplicated displacement formula. This is
-required for cross-compiling Win64 from a System V host and for zero-sized external
-frames, where the former i386 formula selected the slot eight bytes too early.
+Providers should return a verified EIR function. Selectors must still reject a graph whose shape does not match the operation they implement. Verification at both boundaries keeps malformed EIR from becoming silently plausible machine code.
 
-ELF load segments preserve distinct file and memory sizes. TLS program headers map
-the actual TLS bytes inside the data load segment instead of the end of that segment.
+### Semantic providers
+
+Target-independent providers own the algorithms that must be identical on every architecture:
+
+- `ECodeEIRProvider` interprets a normalized e-code and constructs EIR plus typed metadata;
+- `FrameEIRProvider` computes managed/raw frame layout and emits semantic frame operations;
+- `MemoryEIRProvider` describes memory-copy semantics;
+- `StackReferenceEIRProvider` describes STA and MTA stack-reference classification;
+- `ExceptionEIRProvider` describes exception-hook publication;
+- `DispatchEIRProvider` materializes dispatch control flow;
+- `ManagedMethodEIRProvider` and `VirtualMethodEIRProvider` describe managed transfers without selecting registers.
+
+If a rule can be expressed using e-code semantics, runtime mode, target properties, or typed runtime layouts without mentioning a physical instruction, it belongs here or in another generic provider, not in a target directory.
+
+## Physical MIR and the shared machine contract
+
+`machine.h` is a shared machine-boundary vocabulary, not a universal physical MIR. It defines:
+
+- `MachineValueKind`, which preserves integer, managed-reference, VMT, and address roles after selection;
+- `MachineEffect`, the machine-level effect bitmask used by target verifiers;
+- `MachineRelocationKind`, the logical relocation identities understood by the engine/linker boundary;
+- `MachineRelocation`, which preserves a symbolic value, source argument where transitional compatibility requires it, addend, and patch position.
+
+Each architecture family owns its physical MIR. For i386 and AMD64:
+
+- `x86/isa.h` defines physical registers, operand sizes, conditions, selected opcodes, and encoding errors;
+- `x86/machine.h` defines operands, instructions, sequences, and `MIRVerifier`;
+- `x86/lowering.cpp` selects x86-family instructions from verified EIR;
+- `x86/encoder.cpp` converts the sequence into bytes and logical relocation records.
+
+The x86 physical MIR is deliberately small and close to encodable operations. It is not an alternate place for source semantics. An x86 instruction can say "load this typed runtime-data address" or "call this runtime operation"; it cannot decide that inline variant 8 means entering an MTA safe region.
+
+### Register selection and allocation
+
+The current x86-family selector mostly assigns physical registers directly from the managed ABI and operation-specific temporary conventions. There is no general register allocator, liveness analysis, or spill/reload pass yet.
+
+The intended whole-procedure pipeline will separate instruction selection from register allocation. At that point, target-independent EIR values remain virtual until the target's physical MIR and register classes are known. Spill slots, fixed-register constraints, calling-convention clobbers, and instruction-specific register pairs remain backend responsibilities.
+
+Do not place x86 register pressure or spill policy in EIR. Do not place generic value propagation or CFG optimization in `x86/lowering.cpp`.
+
+## Target and ABI model
+
+`TargetSpec` is the immutable description of a compilation target. It combines architecture, operating system, platform ABI, binary format, TLS model, endianness, pointer size, external ABI properties, and managed ABI properties.
+
+The currently modeled targets include Windows i386/AMD64, Linux i386/AMD64/ARM64/PPC64LE, FreeBSD AMD64, and macOS AMD64/ARM64. A modeled target is not necessarily a completed native backend: today the new physical selector and encoder are implemented for the x86 family.
+
+There are three ABI layers and they must not be conflated:
+
+### Managed ABI
+
+The ELENA managed ABI assigns semantic roles such as managed value, object/receiver, cached arguments, allocation size, wide result halves, stack, and frame. `x86::ManagedABI` maps these roles to physical registers for i386 or AMD64.
+
+Managed calls, tail transfers, object allocation, frame chains, and exception propagation use this ABI even when the host platform's C ABI uses different registers.
+
+### External platform ABI
+
+`ExternalABISpec` and `x86::ExternalABI` describe calls to native runtime functions under Windows x86, Windows x64, System V x86, System V AMD64, AAPCS64, and PPC64 ELFv2.
+
+External lowering must honor argument registers or caller-stack placement, return registers, volatile and nonvolatile sets, stack alignment, stack-slot size, Windows x64 shadow space, System V red zones, caller cleanup, variadic rules, and link-register behavior where applicable.
+
+Cross-compilation uses the selected target, never the compiler host's preprocessor ABI. A Windows AMD64 image generated on Linux must still use Windows shadow space and register preservation.
+
+### Runtime-call ABI
+
+`RuntimeCallABI` binds a `RuntimeOperation` to managed input/output registers, clobbers, preserved roots, declared effects, and managed-frame requirements. `RuntimeABISet` builds the available calls for one `RuntimeSpec` and managed ABI.
+
+This layer is the bridge between generated managed code and generated runtime-core entries. The MIR verifier may receive the selected runtime ABI and rejects an instruction sequence that violates the call contract.
+
+## Runtime, GC, MTA, and TLS
+
+`RuntimeSpec` describes runtime policy independently from an instruction set:
+
+- STA or MTA threading mode;
+- GC mode, root strategy, safepoint strategy, and write-barrier mode;
+- object, VMT, GC-data, thread-content, thread-table, and system-environment layouts;
+- the selected target.
+
+`RuntimeCallSpec` describes every callable runtime operation and its effect mask. Allocation calls read and write heap/global state, allocate, may throw, reach a safepoint, and may relocate roots. `WaitForGC` synchronizes, accesses TLS, reaches a safepoint, and may relocate roots. These facts must propagate from EIR through physical MIR and encoding.
+
+### Typed runtime layouts
+
+`common/runtimelayout.h` is the structural source of truth shared by the engine, GC/MTA code, and every backend. `runtime.cpp` derives byte offsets from typed fields such as:
+
+- `ObjectHeaderField` and `VMTHeaderField`;
+- `GCDataField`;
+- `ThreadContentField`, `ThreadTableField`, and `ThreadSlotField`;
+- `SystemEnvironmentField`;
+- exception-structure fields.
+
+Fixed runtime fields must never be expressed as `pointerSize * number` in a backend. Pointer-size multiplication is valid only for genuinely dynamic arrays or indices. The system environment intentionally includes both native-word and serialized 32-bit fields; its layout helper captures that distinction.
+
+Physical spill slots and ABI scaffold slots are different: they belong to the target backend because they describe a target stack convention, not a shared runtime object.
+
+### Runtime-core protocols
+
+`RuntimeCoreProtocol` is an ordered list of `RuntimeCoreAction` values with an action bitmask and per-step effects. The protocol provider owns the semantic order for collection and permanent allocation in STA and MTA modes.
+
+For MTA collection the generic protocol includes observing an active collection, entering the safe region, parking or retrying a mutator, publishing the collector, enumerating and waiting for mutators, acquiring the root lock, composing all root sets, invoking the collector, resuming mutators, and releasing the lock. A target encoder may choose registers and machine instructions, but it may neither omit nor reorder these synchronization phases.
+
+The MTA parking protocol must enter a safe region before publishing that the mutator stopped, wait on the collection-generation barrier, and restore the previous thread state only after the barrier returns. A parked mutator must not wait on a per-thread event that a later collection can reset or reuse. This invariant prevents the historical race in which a second collector starts after the mutator publishes its stop state but before it begins waiting.
+
+### Roots and safepoints
+
+Any call that can collect must make all live managed references discoverable according to the managed-frame and root contracts. `preservedRoots`, `RelocateRoots`, frame publication, static roots, permanent roots, TLS roots, and frame roots are parts of one correctness requirement.
+
+A future optimizer or register allocator must use this metadata to build precise safepoint/root maps or preserve the legacy frame-root strategy. It is not legal to keep an unreported managed reference solely in a volatile register across a relocating safepoint.
+
+### TLS
+
+TLS access is selected from `TargetSpec::tlsModel`: Windows, ELF, or Mach-O. The generic IR names current-thread and TLS operations; the backend chooses the actual access sequence and relocation spelling.
+
+MTA support for a platform is incomplete until current-thread access, TLS image/linker layout, runtime calls, and thread-root enumeration all agree. Rejecting an unsupported combination is preferable to falling back to an unrelated platform sequence.
+
+## Relocations and linking
+
+Symbolic identity must survive until the linker has enough information to resolve it. `MachineRelocationKind` distinguishes runtime calls, module references and values, code references, messages, TLS offsets, runtime data, metadata, constants, procedure labels, and VMT/HMT method addresses or offsets.
+
+The encoder writes the architecture-specific placeholder and records a logical relocation. The engine integration translates that relocation into the existing `ReferenceHelper`/memory reference mechanism. The final linker then applies image layout, import rules, code/data section identity, addends, and platform-specific relocation semantics.
+
+Do not compare unresolved byte streams as if placeholder equality proved semantic equality. Tests should inspect the selected relocation kind, symbolic value, patch position, addend, and final resolved bytes where the linker is part of the test.
+
+`ModuleReferenceValue` carries the actual symbolic reference already resolved by EIR. Transitional `ModuleReference` forms that carry a source argument ordinal must not be introduced in new selectors.
+
+## Source ownership rules
+
+The dependency direction is strict:
+
+```text
+engine integration -> target backend -> generic codegen -> common runtime layouts
+```
+
+Generic code must not include a target directory. A target backend may include generic contracts.
+
+| Concern | Owner |
+| --- | --- |
+| e-code metadata, decoding, blocks, and edges | `ecode.*` |
+| logical operand normalization | generic e-code/EIR providers |
+| semantic types, effects, values, CFG, and phi nodes | `eir.*` |
+| dispatch and managed-method algorithms | `dispatch.*`, `method.*`, and their EIR providers |
+| target/OS/ABI/TLS selection | `target.*` and target ABI provider |
+| GC policy, runtime operations, layouts, and call effects | `runtime.*` |
+| GC/MTA action ordering | `runtimecore.*` |
+| physical registers and instruction forms | target `isa.*` / `machine.*` |
+| instruction selection and spills | target lowering and future register allocator |
+| byte encoding and target relocation slots | target encoder |
+| translating logical relocations into image references | engine/linker integration |
+
+A target directory may own registers, instruction forms, addressing modes, physical labels, calling-convention save/restore sequences, TLS instruction spelling, spill placement, and encoding. It may not own e-code decoding, logical slot scaling, source-level control flow, GC/MTA phase ordering, collection policy, object-size policy, or runtime-call selection.
+
+The x86 migration gate is:
+
+```sh
+rg -n "ByteCode" elenasrc3/codegen/x86
+```
+
+It must produce no matches. Opcode identity belongs to the generic provider and integration registration, not the physical selector.
+
+## Adding or migrating an e-code
+
+1. Identify the named `ByteCode`, every operand encoding, flow behavior, feature bit, and required inline variant. Inspect the compiler that emits it as well as the legacy assembly.
+2. Treat legacy assembly as a behavioral reference, not as the specification. Check it against current ESM routines, runtime layouts, ABI contracts, and known fixes before translating the algorithm.
+3. Add or validate the `ECodeProvider` metadata. The decoder must reject malformed and truncated forms before lowering.
+4. Normalize operands in generic code. Preserve literals, indices, references, messages, and runtime symbols as distinct semantic classes.
+5. Build typed EIR with complete effects and explicit control flow. Put reusable algorithms in a semantic provider rather than a target switch.
+6. Verify EIR, then select target MIR using only EIR, typed metadata, `TargetSpec`, `RuntimeSpec`, and ABI descriptions.
+7. Verify MIR and encode it. Keep symbolic operands as relocations.
+8. Add tests for invalid input, EIR shape/effects, target MIR, exact encodings where stable, relocation identity, every architecture width, every supported platform ABI, and STA/MTA differences.
+9. Register only the variants that passed the migration gate.
+10. Remove the corresponding legacy blocks for those exact architecture/mode variants, rebuild the core binaries, rebuild the compilers cleanly, and run the system and MTA suites.
+
+An implementation is incomplete if it merely recognizes the opcode, emits a placeholder, or delegates to a legacy inline body. Unsupported input must return a typed error; it must never generate a plausible but incorrect sequence.
+
+## Adding a backend
+
+A new architecture backend reuses the generic target, runtime, EIR, dispatch, method, and runtime-core contracts. It must provide:
+
+- a physical ISA and operand/register-class vocabulary;
+- a managed ABI mapping;
+- every external ABI required by its target platforms;
+- runtime-call ABI validation;
+- EIR instruction selection;
+- physical MIR verification;
+- encoding and logical relocation production;
+- TLS lowering for every advertised TLS model;
+- runtime-core lowering for GC, permanent allocation, preparation, waiting, and exception entry;
+- architecture-specific unit tests and end-to-end core validation.
+
+ARM64 and PPC64LE must not copy x86 lowering with renamed registers. They should consume the same semantic graphs and choose native addressing, condition-code, atomic, calling, and branch forms. Architecture-specific gaps remain in their legacy core files until the corresponding backend passes the removal gate.
+
+## Legacy removal policy
+
+A legacy assembly or ESM block may be removed for one target variant only when:
+
+1. the generated semantic path is complete for that architecture, threading mode, target ABI, binary format, and TLS model;
+2. EIR, MIR, encoding, relocation, ABI, GC/MTA, and negative tests pass as applicable;
+3. the relevant core assembly builds without the block and the expected binary no longer contains the legacy body;
+4. a clean compiler rebuild links against that core;
+5. the appropriate system suite reaches a confirmed result without a legacy fallback.
+
+If a suite has a reproducible baseline failure, record it precisely and prove that the generated path reaches the same or a later point. A baseline failure is never a passing gate. Do not restore removed assembly to hide a generated-code defect.
+
+After a shared C++ header changes, use a clean rebuild. The legacy makefiles do not track every header dependency, so an incremental success can be a false result.
+
+When the generated implementation replaces an assembly definition, remove the obsolete block, its now-unused helpers and labels, registration data, build inputs, and documentation in the same migration series. Architecture-specific implementations for backends that are not ready remain intentionally present and must be listed as such; abandoned dead code must not accumulate.
+
+## Current implementation status
+
+The generic model currently covers target descriptions for i386, AMD64, ARM64, and PPC64LE, including the supported Windows, ELF, and Mach-O platform combinations. The new physical MIR, selector, encoder, and generated runtime-core implementation currently cover i386 and AMD64.
+
+The x86-family generated path includes substantial scalar, managed-slot, object allocation, frame, external-frame, runtime-data, module-reference, exception, method-transfer, dispatch, synchronization, TLS, and system-operation coverage. Major generated runtime-core entries include:
+
+- `GC_ALLOC` in STA and MTA;
+- `GC_ALLOCPERM` in STA and MTA;
+- `GC_COLLECT` in STA and MTA;
+- `PREPARE`;
+- `THREAD_WAIT`;
+- `VEH_HANDLER`.
+
+The migrated dispatch family includes fixed, variadic, direct-list, receiver-list, virtual, and alternative-VMT/HMT forms. Managed calls and tail transfers preserve symbolic VMT/HMT relocations rather than reinterpreting method-table offsets as native addresses.
+
+MTA Mach-O combinations that require native current-thread TLS access remain rejected until that contract is implemented. ARM64 and PPC64LE keep their architecture-specific legacy bodies until they have physical EIR selectors and encoders with equivalent validation.
+
+The migration registry and absence of corresponding x86-family assembly blocks are the authoritative per-opcode coverage record. This README describes architecture and major milestones; it must not become a second, manually maintained opcode database.
 
 ## Validation
 
-From `iteration47`:
+Run code-generator unit tests from `iteration47`:
 
 ```sh
 make clean_codegen_tests codegen_tests
+```
+
+After changing shared interfaces or generated e-code paths, rebuild both reference compilers cleanly:
+
+```sh
 make clean_elc_i386
 CCACHE_DISABLE=1 make elc_i386
+
 make clean_elc_amd64
 CCACHE_DISABLE=1 make elc_amd64
 ```
 
-Rebuild the matching core binary after removing an assembly block, then compile and
-run `tests60/system_tests`. MTA migrations additionally rebuild `corex60_lnx.bin`
-and run `tests60/mta_tests`. The asynchronous test suite is not part of this gate.
+After removing an assembly block, rebuild the matching base or MTA core binary before compiling tests. Run `tests60/system_tests` for STA changes and `tests60/mta_tests` for MTA, GC, synchronization, thread, or TLS changes. The asynchronous suite is not part of this migration gate because its current harness is not reliable.
 
-The AMD64 and i386 STA system suites pass and exit with status zero after these
-migrations. The dedicated `tests60/mta_tests` concurrency suite passes on both
-architectures with five rounds and one hundred critical-section increments per worker,
-including thread-table churn, concurrent full/minor collection, and TLS. Its original
-twenty-round profile completes the synchronization-event tests but exceeds the
-available thirty-second validation window in the 160,000-operation critical-section
-stress test.
+The validated state at the creation of this branch is:
 
-`TryLock`, `FreeLock`, `PeekTLS`, and `StoreTLS` are absent from both x86-family base
-assembly cores as well as the MTA overlays during this validation. `pthread_join` is
-called with its required result-pointer argument, so it no longer writes through an
-undefined second System V argument when a test or application joins a worker.
+- AMD64 and i386 STA system suites pass and exit with status zero;
+- the dedicated MTA concurrency suite passes on both architectures with five rounds and one hundred critical-section increments per worker, including thread-table churn, concurrent minor/full collection, and TLS;
+- the original twenty-round MTA profile completes its synchronization-event tests but exceeds the available thirty-second validation window during the 160,000-operation critical-section stress test;
+- `TryLock`, `FreeLock`, `PeekTLS`, and `StoreTLS` are absent from the x86-family base and MTA assembly cores;
+- `pthread_join` receives the required result-pointer argument and no longer writes through an undefined second System V argument.
+
+Always distinguish a timeout from a crash and a passing test body from a clean process exit. Record the command, architecture, runtime mode, last confirmed test marker, signal or exit status, and whether any legacy fallback was available.
+
+## Code and documentation style
+
+There is no 80-column limit in this directory. Keep a declaration, condition, function call, or explanatory sentence on one line when that is the clearest representation. Split lines to expose semantic hierarchy, not to satisfy an arbitrary column count.
+
+Blank lines separate logical phases, synchronization boundaries, and conceptually different instruction groups. Dense walls of code are not acceptable merely because every statement is short.
+
+Use named fields, typed enums, layout helpers, and construction helpers for structures whose positional meaning is not obvious. Bitmasks are preferred for orthogonal properties, effects, feature sets, register sets, action coverage, and migrated variants. Enums are preferred for mutually exclusive states.
+
+Code comments should identify e-code identities, non-obvious machine encodings, ABI obligations, relocation meaning, and concurrency invariants. They should not narrate ordinary C++ control flow. Documentation may and should explain the architecture in depth.
