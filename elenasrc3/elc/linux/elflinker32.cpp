@@ -98,15 +98,19 @@ void Elf32Linker :: writePHTable(ElfExecutableImage& image, FileWriter* file, un
    file->write((char*)&ph_header, ELF_PH_SIZE);
 
    unsigned int offset = 0;
+   pos_t tlsOffset = 0;
+   bool tlsMapped = false;
    for (auto it = image.imageSections.headers.start(); !it.eof(); ++it) {
       ImageSectionHeader info = *it;
+      unsigned int sectionOffset = offset;
 
       ph_header.p_type = PT_LOAD;
       ph_header.p_offset = offset;
       ph_header.p_vaddr = image.addressMap.imageBase + info.vaddress;
       ph_header.p_paddr = image.addressMap.imageBase + info.vaddress;
       ph_header.p_align = image.sectionAlignment;
-      ph_header.p_memsz = ph_header.p_filesz = info.fileSize;
+      ph_header.p_filesz = info.fileSize;
+      ph_header.p_memsz = info.memorySize;
 
       switch (info.type) {
          case ImageSectionHeader::SectionType::Text:
@@ -123,6 +127,14 @@ void Elf32Linker :: writePHTable(ElfExecutableImage& image, FileWriter* file, un
       }
 
       file->write((char*)&ph_header, ELF_PH_SIZE);
+
+      if (image.withTLS
+         && image.addressMap.tls >= info.vaddress
+         && image.addressMap.tls < info.vaddress + info.fileSize)
+      {
+         tlsOffset = sectionOffset + (image.addressMap.tls - info.vaddress);
+         tlsMapped = true;
+      }
 
       offset += ph_header.p_filesz;
    }
@@ -146,7 +158,7 @@ void Elf32Linker :: writePHTable(ElfExecutableImage& image, FileWriter* file, un
       pos_t tlsSize = image.addressMap.dictionary.get(elfTLSSize);
 
       ph_header.p_type = PT_TLS;
-      ph_header.p_offset = offset;
+      ph_header.p_offset = tlsMapped ? tlsOffset : 0;
       ph_header.p_paddr = ph_header.p_vaddr = image.addressMap.imageBase + image.addressMap.tls;
       ph_header.p_memsz = ph_header.p_filesz = tlsSize;
       ph_header.p_flags = PF_R;

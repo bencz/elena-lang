@@ -9,6 +9,7 @@
 #include "elena.h"
 // --------------------------------------------------------------------------
 #include "jitcompiler.h"
+#include "../codegen/ecode.h"
 #include "langcommon.h"
 #include "core.h"
 
@@ -507,11 +508,16 @@ void elena_lang :: loadOp(JITCompilerScope* scope)
 
 void elena_lang :: loadSysOp(JITCompilerScope* scope)
 {
-   int index = 0;
-   if (scope->command.arg1 < NumberOfInlines)
-      index = scope->command.arg1;
+   if (scope->command.arg1 < 0 || scope->command.arg1 >= NumberOfInlines)
+      throw InternalError(errCommandSetAbsent, (int)scope->code());
 
-   loadCode(scope, scope->compiler->_inlines[index][scope->code()], nullptr);
+   int index = scope->command.arg1;
+   void* code = scope->compiler->_inlines[index][scope->code()];
+   if (!code)
+      throw InternalError(errCommandSetAbsent,
+         (index << 8) | (int)scope->code());
+
+   loadCode(scope, code, nullptr);
 }
 
 static inline int retrieveFrameOpIndex(int frameIndex, bool noNegative)
@@ -2893,9 +2899,13 @@ static inline void loadPreloaded(JITCompilerScope& scope, LibraryLoaderBase* loa
    }
 }
 
-static inline void loadInline(ref_t index, void* inlines[][0x100], LibraryLoaderBase* loader)
+static inline void loadInline(ref_t index, void* inlines[][0x100],
+   unsigned short* migratedInlineMasks, LibraryLoaderBase* loader)
 {
    for (size_t i = 0; i < bcCommandNumber; i++) {
+      if ((migratedInlineMasks[(ref_t)bcCommands[i]] & (1u << index)) != 0)
+         continue;
+
       auto info = loader->getCoreSection((ref_t)bcCommands[i] | (index << 8), false);
       if (info.section) {
          // due to optimization section must be ROModule::ROSection instance
@@ -2903,6 +2913,9 @@ static inline void loadInline(ref_t index, void* inlines[][0x100], LibraryLoader
       }
       else if (inlines[0][(ref_t)bcCommands[i]] != nullptr) {
          inlines[index][(ref_t)bcCommands[i]] = inlines[0][(ref_t)bcCommands[i]];
+      }
+      else if ((migratedInlineMasks[(ref_t)bcCommands[i]] & 1u) != 0) {
+         inlines[index][(ref_t)bcCommands[i]] = nullptr;
       }
       else throw InternalError(errCommandSetAbsent, (int)bcCommands[i]);
    }
@@ -3226,8 +3239,41 @@ void JITCompiler :: loadCoreRoutines(
 
    // preload core functions
    JITCompilerScope scope(helper, this, lh, &codeWriter, nullptr, &_constants);
-   loadPreloaded(scope, loader, coreFunctionNumber, coreFunctions, _preloaded, positions,
-      _constants.inlineMask, declareMode, virtualMode);
+   for (int i = 0; i < coreFunctionNumber; i++) {
+      MemoryDump generated;
+      MemoryWriter generatedWriter(&generated);
+      JITCompilerScope generatedScope(nullptr, this, nullptr, &generatedWriter, nullptr, &_constants);
+      if (compileCoreRoutine(coreFunctions[i], generatedScope)) {
+         if (declareMode) {
+            if (!_preloaded.exist(coreFunctions[i])) {
+               if (virtualMode) {
+                  _preloaded.add(coreFunctions[i],
+                     (void*)(helper->calculateVAddress(codeWriter, _constants.inlineMask) & ~mskAnyRef));
+               }
+               else _preloaded.add(coreFunctions[i],
+                  (void*)helper->calculateVAddress(codeWriter, _constants.inlineMask));
+
+               positions.add(coreFunctions[i], codeWriter.position());
+               codeWriter.writeBytes(0, generated.length());
+            }
+         }
+         else {
+            pos_t position = positions.get(coreFunctions[i]);
+            if (position != INVALID_POS) {
+               codeWriter.seek(position);
+               if (!compileCoreRoutine(coreFunctions[i], scope))
+                  throw InternalError(errCommandSetAbsent, coreFunctions[i]);
+            }
+         }
+      }
+      else loadPreloaded(scope, loader, 1, coreFunctions + i, _preloaded, positions,
+         _constants.inlineMask, declareMode, virtualMode);
+   }
+}
+
+bool JITCompiler :: compileCoreRoutine(ref_t, JITCompilerScope&)
+{
+   return false;
 }
 
 void JITCompiler :: prepare(
@@ -3249,7 +3295,7 @@ void JITCompiler :: prepare(
 
    // preload vm commands
    for (ref_t i = 0; i < NumberOfInlines; i++) {
-      loadInline(i, _inlines, loader);
+      loadInline(i, _inlines, _migratedInlineMasks, loader);
    }
 }
 
@@ -3269,6 +3315,62 @@ CodeGenerator* JITCompiler :: codeGenerators()
    return _codeGenerators;
 }
 
+void JITCompiler :: registerMigratedCode(ByteCode code, CodeGenerator generator)
+{
+   _migratedGenerators[(unsigned char)code] = generator;
+   _migratedInlineMasks[(unsigned char)code] = (1u << NumberOfInlines) - 1;
+}
+
+void JITCompiler :: registerMigratedInline(ByteCode code, unsigned int index,
+   CodeGenerator generator)
+{
+   if (index >= NumberOfInlines)
+      throw InternalError(errInvalidMachineCode, (int)index);
+
+   unsigned char value = (unsigned char)code;
+   if (_migratedGenerators[value] && _migratedGenerators[value] != generator)
+      throw InternalError(errInvalidMachineCode, value);
+
+   _migratedGenerators[value] = generator;
+   _migratedInlineMasks[value] |= 1u << index;
+}
+
+void JITCompiler :: registerMigratedInlines(ByteCode code, unsigned short variants,
+   CodeGenerator generator)
+{
+   unsigned short validVariants = (1u << NumberOfInlines) - 1;
+   if (variants == 0 || (variants & ~validVariants) != 0)
+      throw InternalError(errInvalidMachineCode, variants);
+
+   for (unsigned int index = 0; index < NumberOfInlines; index++) {
+      if ((variants & (1u << index)) != 0)
+         registerMigratedInline(code, index, generator);
+   }
+}
+
+bool JITCompiler :: supportsMigrationProfile(bool multiThread) const
+{
+   codegen::ThreadingMode threadingMode = multiThread
+      ? codegen::ThreadingMode::MultiThread
+      : codegen::ThreadingMode::SingleThread;
+
+   for (unsigned int value = 0; value <= 0xFF; value++) {
+      ByteCode code = (ByteCode)value;
+      unsigned short required = codegen::ECodeMigrationProvider::requiredInlineVariants(
+         code,
+         threadingMode);
+
+      if (required != 0
+         && (!_migratedGenerators[value]
+            || (_migratedInlineMasks[value] & required) != required))
+      {
+         return false;
+      }
+   }
+
+   return true;
+}
+
 void JITCompiler :: writeArgAddress(JITCompilerScope* scope, ref_t arg, pos_t offset, ref_t addressMask)
 {
    scope->helper->writeReference(*scope->codeWriter->Memory(), scope->codeWriter->position(),
@@ -3281,35 +3383,47 @@ void JITCompiler :: writeVMTMethodArg(JITCompilerScope* scope, ref_t arg, pos_t 
       arg, offset, message, addressMask);
 }
 
-void JITCompiler :: compileTape(ReferenceHelperBase* helper, MemoryReader& bcReader, pos_t endPos,
-   MemoryWriter& codeWriter, LabelHelperBase* lh)
+void JITCompiler :: compileTape(ReferenceHelperBase* helper, MemoryReader& bcReader,
+   codegen::ECodeProcedure& procedure, MemoryWriter& codeWriter, LabelHelperBase* lh)
 {
    CodeGenerator*   generators = codeGenerators();
    JITCompilerScope scope(helper, this, lh, &codeWriter, &bcReader, &_constants);
 
-   while (bcReader.position() < endPos) {
-      ByteCodeUtil::read(bcReader, scope.command);
+   for (pos_t i = 0; i < procedure.instructionCount(); i++) {
+      codegen::ECodeInstruction& instruction = procedure.instruction(i);
+      if (!bcReader.seek(procedure.bodyOffset() + instruction.offset + instruction.size))
+         throw InternalError(errInvalidECode, (int)codegen::ECodeDecodeError::TruncatedInstruction);
 
-      generators[(unsigned char)scope.command.code](&scope);
+      scope.command = instruction.command;
+      CodeGenerator generator = _migratedGenerators[(unsigned char)scope.command.code];
+      if (generator)
+         generator(&scope);
+      else generators[(unsigned char)scope.command.code](&scope);
    }
 }
 
 void JITCompiler :: compileProcedure(ReferenceHelperBase* helper, MemoryReader& bcReader,
    MemoryWriter& codeWriter, LabelHelperBase* lh)
 {
-   pos_t codeSize = bcReader.getPos();
-   pos_t endPos = bcReader.position() + codeSize;
+   codegen::ECodeProcedure procedure;
+   codegen::ECodeDecodeError error = codegen::ECodeDecoder::decode(
+      bcReader.Memory(), bcReader.position(), procedure);
+   if (error != codegen::ECodeDecodeError::None)
+      throw InternalError(errInvalidECode, (int)error);
 
-   compileTape(helper, bcReader, endPos, codeWriter, lh);
+   compileTape(helper, bcReader, procedure, codeWriter, lh);
 }
 
 void JITCompiler :: compileSymbol(ReferenceHelperBase* helper, MemoryReader& bcReader,
    MemoryWriter& codeWriter, LabelHelperBase* lh)
 {
-   pos_t codeSize = bcReader.getPos();
-   pos_t endPos = bcReader.position() + codeSize;
+   codegen::ECodeProcedure procedure;
+   codegen::ECodeDecodeError error = codegen::ECodeDecoder::decode(
+      bcReader.Memory(), bcReader.position(), procedure);
+   if (error != codegen::ECodeDecodeError::None)
+      throw InternalError(errInvalidECode, (int)error);
 
-   compileTape(helper, bcReader, endPos, codeWriter, lh);
+   compileTape(helper, bcReader, procedure, codeWriter, lh);
 }
 
 void JITCompiler :: resolveLabelAddress(MemoryWriter* writer, ref_t mask, pos_t position, bool virtualMode)
@@ -3545,6 +3659,25 @@ addr_t JITCompiler32 :: findMethodAddress(void* entries, mssg_t message)
    }
 
    return (addr_t)address;
+}
+
+addr_t JITCompiler32 :: findHiddenMethodAddress(void* entries,
+   mssg_t message)
+{
+   VMTHeader32* header = (VMTHeader32*)((uintptr_t)entries
+      - elVMTClassOffset32);
+
+   pos_t index = header->count;
+   while (((VMTEntry32*)entries)[index].message) {
+      if (((VMTEntry32*)entries)[index].message == message)
+         return (addr_t)((VMTEntry32*)entries)[index].address;
+
+      index++;
+   }
+
+   assert(false);
+
+   return 0;
 }
 
 pos_t JITCompiler32 :: findMethodOffset(void* entries, mssg_t message)
@@ -4098,6 +4231,25 @@ addr_t JITCompiler64 :: findMethodAddress(void* entries, mssg_t message)
    }
 
    return (addr_t)address;
+}
+
+addr_t JITCompiler64 :: findHiddenMethodAddress(void* entries,
+   mssg_t message)
+{
+   VMTHeader64* header = (VMTHeader64*)((uintptr_t)entries
+      - elVMTClassOffset64);
+
+   pos64_t index = header->count;
+   while (((VMTEntry64*)entries)[index].message) {
+      if (((VMTEntry64*)entries)[index].message == message)
+         return (addr_t)((VMTEntry64*)entries)[index].address;
+
+      index++;
+   }
+
+   assert(false);
+
+   return 0;
 }
 
 pos_t JITCompiler64 :: findMethodOffset(void* entries, mssg_t message)

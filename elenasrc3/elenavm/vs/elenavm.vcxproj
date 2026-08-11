@@ -286,6 +286,20 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseCross|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\..\codegen\target.cpp" />
+    <ClCompile Include="..\..\codegen\runtime.cpp" />
+    <ClCompile Include="..\..\codegen\runtimecore.cpp" />
+    <ClCompile Include="..\..\codegen\dispatch.cpp" />
+    <ClCompile Include="..\..\codegen\method.cpp" />
+    <ClCompile Include="..\..\codegen\ecode.cpp" />
+    <ClCompile Include="..\..\codegen\eir.cpp" />
+    <ClCompile Include="..\..\codegen\x86\abi.cpp" />
+    <ClCompile Include="..\..\codegen\x86\machine.cpp" />
+    <ClCompile Include="..\..\codegen\x86\lowering.cpp" />
+    <ClCompile Include="..\..\codegen\x86\encoder.cpp" />
+    <ClCompile Include="..\..\codegen\x86\runtimecore.cpp" />
+    <ClCompile Include="..\..\codegen\x86\runtimecore_x86.cpp" />
+    <ClCompile Include="..\..\codegen\x86\runtimecore_amd64.cpp" />
     <ClCompile Include="..\..\engine\bytecode.cpp" />
     <ClCompile Include="..\..\engine\codescope.cpp" />
     <ClCompile Include="..\..\engine\elenamachine.cpp" />

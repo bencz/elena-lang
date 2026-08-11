@@ -423,7 +423,7 @@ void SystemRoutineProvider::InitMTASignals(SystemEnv* env, size_t index)
    EventImpl* event = new EventImpl();
 
    env->th_table->slots[index].content->tt_sync_event = (void*)event;
-   env->th_table->slots[index].content->tt_flags = 0;
+   env->th_table->slots[index].content->tt_flags = 1;
 }
 
 void SystemRoutineProvider::ClearMTASignals(SystemEnv* env, size_t index)
@@ -459,4 +459,28 @@ void SystemRoutineProvider::GCWaitForSignal(void* handle)
 void SystemRoutineProvider::GCSignalClear(void* handle)
 {
    ((EventImpl*)handle)->reset();
+}
+
+static pthread_mutex_t CollectionMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t CollectionCondition = PTHREAD_COND_INITIALIZER;
+static size_t CollectionGeneration = 0;
+
+void SystemRoutineProvider::GCWaitForCollection(GCTable* table)
+{
+   pthread_mutex_lock(&CollectionMutex);
+
+   size_t generation = CollectionGeneration;
+   while (generation == CollectionGeneration && table->gc_signal != 0)
+      pthread_cond_wait(&CollectionCondition, &CollectionMutex);
+
+   pthread_mutex_unlock(&CollectionMutex);
+}
+
+void SystemRoutineProvider::GCSignalCollectionEnd()
+{
+   pthread_mutex_lock(&CollectionMutex);
+   CollectionGeneration++;
+   pthread_mutex_unlock(&CollectionMutex);
+
+   pthread_cond_broadcast(&CollectionCondition);
 }

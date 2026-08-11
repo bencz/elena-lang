@@ -25,7 +25,8 @@ LIBDIR_RELEASE = $(LIBDIR)
 LIB_RELEASE = $(LIB)
 LDFLAGS_RELEASE = $(LDFLAGS) -s
 OBJDIR_RELEASE = ../../temp/elena64-cli
-DEP_RELEASE = 
+DEP_RELEASE = $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o
+LIB_RELEASE += $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o
 OUT_RELEASE = ../../../bin/elena64-cli
 
 OBJ_RELEASE = $(OBJDIR_RELEASE)/__/__/common/config.o $(OBJDIR_RELEASE)/__/__/common/dump.o $(OBJDIR_RELEASE)/__/__/common/files.o $(OBJDIR_RELEASE)/__/__/common/paths.o $(OBJDIR_RELEASE)/__/__/common/ustring.o  $(OBJDIR_RELEASE)/__/__/common/xmltree.o $(OBJDIR_RELEASE)/__/__/engine/bcwriter.o $(OBJDIR_RELEASE)/__/__/engine/codescope.o $(OBJDIR_RELEASE)/__/__/engine/jitcompiler.o $(OBJDIR_RELEASE)/__/__/engine/jitlinker.o $(OBJDIR_RELEASE)/__/__/engine/libman.o $(OBJDIR_RELEASE)/__/__/engine/module.o $(OBJDIR_RELEASE)/__/__/engine/parsertable.o $(OBJDIR_RELEASE)/__/__/engine/section.o $(OBJDIR_RELEASE)/__/__/engine/arm64compiler.o $(OBJDIR_RELEASE)/__/__/engine/syntaxtree.o $(OBJDIR_RELEASE)/__/__/engine/bytecode.o $(OBJDIR_RELEASE)/__/__/engine/xmlprojectbase.o $(OBJDIR_RELEASE)/__/__/engine/linux/presenter.o $(OBJDIR_RELEASE)/__/codeimage.o $(OBJDIR_RELEASE)/__/compiler.o $(OBJDIR_RELEASE)/__/compiling.o $(OBJDIR_RELEASE)/__/derivation.o $(OBJDIR_RELEASE)/__/macos/elc.o $(OBJDIR_RELEASE)/__/macos/machoimage.o $(OBJDIR_RELEASE)/__/macos/machoarmimage.o $(OBJDIR_RELEASE)/__/macos/macholinker.o $(OBJDIR_RELEASE)/__/macos/macholinker64.o $(OBJDIR_RELEASE)/__/macos/machoarmlinker64.o $(OBJDIR_RELEASE)/__/parser.o $(OBJDIR_RELEASE)/__/separser.o $(OBJDIR_RELEASE)/__/project.o $(OBJDIR_RELEASE)/__/source.o $(OBJDIR_RELEASE)/__/modulescope.o $(OBJDIR_RELEASE)/__/compilerlogic.o $(OBJDIR_RELEASE)/__/__/engine/serializer.o $(OBJDIR_RELEASE)/__/__/engine/scriptreader.o  $(OBJDIR_RELEASE)/__/cli.o $(OBJDIR_RELEASE)/__/macos/pathmanager.o
@@ -97,6 +98,18 @@ $(OBJDIR_RELEASE)/__/__/engine/arm64compiler.o: ../../engine/arm64compiler.cpp
 
 $(OBJDIR_RELEASE)/__/__/engine/syntaxtree.o: ../../engine/syntaxtree.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/syntaxtree.cpp -o $(OBJDIR_RELEASE)/__/__/engine/syntaxtree.o
+
+$(OBJDIR_RELEASE)/__/__/engine/dispatch.o: ../../codegen/dispatch.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/dispatch.cpp -o $(OBJDIR_RELEASE)/__/__/engine/dispatch.o
+
+$(OBJDIR_RELEASE)/__/__/engine/method.o: ../../codegen/method.cpp ../../codegen/method.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/method.cpp -o $(OBJDIR_RELEASE)/__/__/engine/method.o
+
+$(OBJDIR_RELEASE)/__/__/engine/ecode.o: ../../codegen/ecode.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/ecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/ecode.o
+
+$(OBJDIR_RELEASE)/__/__/engine/eir.o: ../../codegen/eir.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/eir.cpp -o $(OBJDIR_RELEASE)/__/__/engine/eir.o
 
 $(OBJDIR_RELEASE)/__/__/engine/bytecode.o: ../../engine/bytecode.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/bytecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/bytecode.o

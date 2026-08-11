@@ -32,7 +32,7 @@ JITCompilerBase* createJITCompiler(LibraryLoaderBase*/* loader*/, PlatformType p
 {
    switch (platform) {
       case PlatformType::Win_x86:
-         return new X86JITCompiler();
+         return new X86JITCompiler(codegen::TargetPlatform::WindowsX86);
       default:
          return nullptr;
    }
@@ -48,7 +48,7 @@ JITCompilerBase* createJITCompiler(LibraryLoaderBase* loader, PlatformType platf
 {
    switch (platform) {
       case PlatformType::Win_x86_64:
-         return new X86_64JITCompiler();
+         return new X86_64JITCompiler(codegen::TargetPlatform::WindowsAMD64);
       default:
          return nullptr;
    }
@@ -124,6 +124,12 @@ void printError(int errCode)
          break;
       case errCommandSetAbsent:
          printf("ELENAVM: cannot initialize core");
+         break;
+      case errInvalidECode:
+         printf("ELENAVM: invalid e-code tape");
+         break;
+      case errInvalidMachineCode:
+         printf("ELENAVM: invalid machine instruction");
          break;
       default:
          printf("ELENAVM: Unknown error %d\n", errCode);

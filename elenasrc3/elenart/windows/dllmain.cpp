@@ -263,34 +263,32 @@ EXTERN_DLL_EXPORT unsigned int GetRandomIntLA(SeedStruct& seed)
 
 EXTERN_DLL_EXPORT void SignalStopGCLA(void* handle)
 {
-   //printf("GCSignalStop %x\n", (int)handle);
-   //fflush(stdout);
-
    SystemRoutineProvider::GCSignalStop(handle);
 }
 
 EXTERN_DLL_EXPORT void WaitForSignalGCLA(void* handle)
 {
-   //printf("WaitForSignalGCLA %x\n", (int)handle);
-   //fflush(stdout);
-
    SystemRoutineProvider::GCWaitForSignal(handle);
 }
 
 EXTERN_DLL_EXPORT void SignalClearGCLA(void* handle)
 {
-   //printf("SignalClearGCLA %x\n", (int)handle);
-   //fflush(stdout);
-
    SystemRoutineProvider::GCSignalClear(handle);
 }
 
 EXTERN_DLL_EXPORT void WaitForSignalsGCLA(size_t count, void* handles)
 {
-   //printf("WaitForSignalsGCLA %x\n", count);
-   //fflush(stdout);
-
    SystemRoutineProvider::GCWaitForSignals(count, handles);
+}
+
+EXTERN_DLL_EXPORT void WaitForCollectionGCLA()
+{
+   SystemRoutineProvider::GCWaitForCollection(systemEnv->gc_table);
+}
+
+EXTERN_DLL_EXPORT void SignalCollectionEndGCLA()
+{
+   SystemRoutineProvider::GCSignalCollectionEnd();
 }
 
 /// <summary>
@@ -343,4 +341,3 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     }
     return TRUE;
 }
-

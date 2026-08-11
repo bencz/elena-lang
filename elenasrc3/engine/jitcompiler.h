@@ -14,6 +14,11 @@
 
 namespace elena_lang
 {
+   namespace codegen
+   {
+      class ECodeProcedure;
+   }
+
    constexpr auto NumberOfInlines = 12;
 
    // --- JITCompilerScope ---
@@ -82,11 +87,19 @@ namespace elena_lang
 
    protected:
       void*        _inlines[NumberOfInlines][0x100];
+      CodeGenerator _migratedGenerators[0x100];
+      unsigned short _migratedInlineMasks[0x100];
       PreloadedMap _preloaded;
 
       JITConstants _constants;
 
       CodeGenerator* codeGenerators();
+      void registerMigratedCode(ByteCode code, CodeGenerator generator);
+      void registerMigratedInline(ByteCode code, unsigned int index,
+         CodeGenerator generator);
+      void registerMigratedInlines(ByteCode code, unsigned short variants,
+         CodeGenerator generator);
+      bool supportsMigrationProfile(bool multiThread) const;
 
       virtual int calcFrameOffset(int argument, bool extMode) = 0;
       virtual int calcTotalSize(int numberOfFields) = 0;
@@ -95,8 +108,10 @@ namespace elena_lang
       void writeArgAddress(JITCompilerScope* scope, ref_t arg, pos_t offset, ref_t addressMask);
       void writeVMTMethodArg(JITCompilerScope* scope, ref_t arg, pos_t offset, mssg_t message, ref_t addressMask);
 
-      virtual void compileTape(ReferenceHelperBase* helper, MemoryReader& bcReader, pos_t endPos, 
-         MemoryWriter& codeWriter, LabelHelperBase* lh);
+      virtual void compileTape(ReferenceHelperBase* helper, MemoryReader& bcReader,
+         codegen::ECodeProcedure& procedure, MemoryWriter& codeWriter, LabelHelperBase* lh);
+
+      virtual bool compileCoreRoutine(ref_t reference, JITCompilerScope& scope);
 
       friend void writeCoreReference(JITCompilerScope* scope, ref_t reference, 
          pos_t disp, void* code, ModuleBase* module);
@@ -239,7 +254,8 @@ namespace elena_lang
       void* getSystemEnv() override;
 
       JITCompiler()
-         : _inlines{}, _preloaded(nullptr)
+         : _inlines{}, _migratedGenerators{}, _migratedInlineMasks{},
+           _preloaded(nullptr)
       {
          _constants.indexPower = 0;
          _constants.dataHeader = _constants.dataOffset = 0;
@@ -285,6 +301,7 @@ namespace elena_lang
 
       pos_t getVMTLength(void* targetVMT) override;
       addr_t findMethodAddress(void* entries, mssg_t message) override;
+      addr_t findHiddenMethodAddress(void* entries, mssg_t message) override;
       pos_t findMethodOffset(void* entries, mssg_t message) override;
       pos_t findHiddenMethodOffset(void* entries, mssg_t message) override;
 
@@ -365,6 +382,7 @@ namespace elena_lang
 
       pos_t getVMTLength(void* targetVMT) override;
       addr_t findMethodAddress(void* entries, mssg_t message) override;
+      addr_t findHiddenMethodAddress(void* entries, mssg_t message) override;
       pos_t findMethodOffset(void* entries, mssg_t message) override;
       pos_t findHiddenMethodOffset(void* entries, mssg_t message) override;
 

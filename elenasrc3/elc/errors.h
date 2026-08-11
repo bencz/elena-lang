@@ -119,6 +119,8 @@ namespace elena_lang
    constexpr auto wrnMsgInvalidTemplateName  = "\nwarning 503: invalid or unknown template %s\n";
 
    constexpr auto errMsgCommandSetAbsent     = "\ninternal error 600: command set is not defined for %x\n";
+   constexpr auto errMsgInvalidECode         = "\ninternal error 607: invalid e-code tape (%x)\n";
+   constexpr auto errMsgInvalidMachineCode   = "\ninternal error 608: invalid machine instruction (%x)\n";
    constexpr auto errMsgReadOnlyModule       = "\ninternal error 601: read-only module\n";
    constexpr auto errMsgNotDefinedBaseClass  = "\ninternal error 602: base class is not defined\n";
    constexpr auto errMsgReferenceOverflow    = "\ninternal error 603: Reference overflow\n";

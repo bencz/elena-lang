@@ -10,12 +10,23 @@
 #define X86COMPILER_H
 
 #include "jitcompiler.h"
+#include "../codegen/runtime.h"
+#include "../codegen/x86/abi.h"
 
 namespace elena_lang
 {
    // --- X86JITCompiler ---
    class X86JITCompiler : public JITCompiler32
    {
+      codegen::RuntimeSpec         _runtime;
+      codegen::TargetSpec          _target;
+      codegen::x86::ManagedABI     _managedABI;
+      codegen::x86::RuntimeABISet  _runtimeABIs;
+
+      static void compileMigrated(JITCompilerScope* scope);
+
+      bool compileCoreRoutine(ref_t reference, JITCompilerScope& scope) override;
+
       void prepare(
          LibraryLoaderBase* loader, 
          ImageProviderBase* imageProvider, 
@@ -30,6 +41,8 @@ namespace elena_lang
          return { 1, 1, 4, 16, 4, 4 };
       }
 
+      int calcFrameOffset(int argument, bool extMode) override;
+
       void writeImm9(MemoryWriter* writer, int value, int type) override;
       void writeImm12(MemoryWriter* writer, int value, int type) override;
 
@@ -42,11 +55,7 @@ namespace elena_lang
       void compileSymbol(ReferenceHelperBase* helper, MemoryReader& bcReader, 
          MemoryWriter& codeWriter, LabelHelperBase* lh) override;
 
-      X86JITCompiler()
-         : JITCompiler32()
-      {
-         _constants.unframedOffset = 1;
-      }
+      X86JITCompiler(codegen::TargetPlatform platform = codegen::TargetPlatform::LinuxX86);
    };
 }
 

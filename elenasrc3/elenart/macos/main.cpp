@@ -342,3 +342,13 @@ void WaitForSignalsGCLA(size_t count, void* handles)
 {
    SystemRoutineProvider::GCWaitForSignals(count, handles);
 }
+
+void WaitForCollectionGCLA()
+{
+   SystemRoutineProvider::GCWaitForCollection(systemEnv->gc_table);
+}
+
+void SignalCollectionEndGCLA()
+{
+   SystemRoutineProvider::GCSignalCollectionEnd();
+}

@@ -382,6 +382,7 @@ namespace elena_lang
          this->_position = it._position;
          this->_length = it._length;
          this->_buffer = it._buffer;
+         this->_current = it._current;
 
          return *this;
       }
@@ -431,6 +432,14 @@ namespace elena_lang
       }
 
       bool eof() const { return _position >= _length; }
+
+      MemoryListIterator(const MemoryListIterator& it)
+      {
+         _buffer = it._buffer;
+         _position = it._position;
+         _length = it._length;
+         _current = it._current;
+      }
 
       MemoryListIterator(MemoryDump* buffer, pos_t length)
       {

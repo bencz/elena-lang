@@ -35,7 +35,8 @@ LIBDIR_RELEASE = $(LIBDIR)
 LIB_RELEASE = $(LIB)
 LDFLAGS_RELEASE = $(LDFLAGS) -s
 OBJDIR_RELEASE = ../../temp/elenavm64
-DEP_RELEASE = 
+DEP_RELEASE = $(OBJDIR_RELEASE)/__/__/engine/target.o $(OBJDIR_RELEASE)/__/__/engine/runtime.o $(OBJDIR_RELEASE)/__/__/engine/runtimecore.o $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o $(OBJDIR_RELEASE)/__/__/engine/x86abi.o $(OBJDIR_RELEASE)/__/__/engine/x86machine.o $(OBJDIR_RELEASE)/__/__/engine/x86lowering.o $(OBJDIR_RELEASE)/__/__/engine/x86encoder.o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore.o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_x86.o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_amd64.o
+LIB_RELEASE += $(OBJDIR_RELEASE)/__/__/engine/target.o $(OBJDIR_RELEASE)/__/__/engine/runtime.o $(OBJDIR_RELEASE)/__/__/engine/runtimecore.o $(OBJDIR_RELEASE)/__/__/engine/dispatch.o $(OBJDIR_RELEASE)/__/__/engine/method.o $(OBJDIR_RELEASE)/__/__/engine/ecode.o $(OBJDIR_RELEASE)/__/__/engine/eir.o $(OBJDIR_RELEASE)/__/__/engine/x86abi.o $(OBJDIR_RELEASE)/__/__/engine/x86machine.o $(OBJDIR_RELEASE)/__/__/engine/x86lowering.o $(OBJDIR_RELEASE)/__/__/engine/x86encoder.o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore.o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_x86.o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_amd64.o
 
 ifeq ($(OS),Windows_NT)
 
@@ -92,6 +93,48 @@ $(OBJDIR_RELEASE)/__/__/engine/rtmanager.o: ../../engine/rtmanager.cpp
 $(OBJDIR_RELEASE)/__/__/engine/gcroutines.o: ../../engine/gcroutines.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/gcroutines.cpp -o $(OBJDIR_RELEASE)/__/__/engine/gcroutines.o
 
+$(OBJDIR_RELEASE)/__/__/engine/dispatch.o: ../../codegen/dispatch.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/dispatch.cpp -o $(OBJDIR_RELEASE)/__/__/engine/dispatch.o
+
+$(OBJDIR_RELEASE)/__/__/engine/method.o: ../../codegen/method.cpp ../../codegen/method.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/method.cpp -o $(OBJDIR_RELEASE)/__/__/engine/method.o
+
+$(OBJDIR_RELEASE)/__/__/engine/ecode.o: ../../codegen/ecode.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/ecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/ecode.o
+
+$(OBJDIR_RELEASE)/__/__/engine/eir.o: ../../codegen/eir.cpp
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/eir.cpp -o $(OBJDIR_RELEASE)/__/__/engine/eir.o
+
+$(OBJDIR_RELEASE)/__/__/engine/target.o: ../../codegen/target.cpp ../../codegen/target.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/target.cpp -o $(OBJDIR_RELEASE)/__/__/engine/target.o
+
+$(OBJDIR_RELEASE)/__/__/engine/runtime.o: ../../codegen/runtime.cpp ../../codegen/runtime.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/runtime.cpp -o $(OBJDIR_RELEASE)/__/__/engine/runtime.o
+
+$(OBJDIR_RELEASE)/__/__/engine/runtimecore.o: ../../codegen/runtimecore.cpp ../../codegen/runtimecore.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/runtimecore.cpp -o $(OBJDIR_RELEASE)/__/__/engine/runtimecore.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86abi.o: ../../codegen/x86/abi.cpp ../../codegen/x86/abi.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/abi.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86abi.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86machine.o: ../../codegen/x86/machine.cpp ../../codegen/x86/machine.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/machine.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86machine.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86lowering.o: ../../codegen/x86/lowering.cpp ../../codegen/x86/lowering.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/lowering.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86lowering.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86encoder.o: ../../codegen/x86/encoder.cpp ../../codegen/x86/encoder.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/encoder.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86encoder.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86runtimecore.o: ../../codegen/x86/runtimecore.cpp ../../codegen/x86/runtimecore.h ../../codegen/runtimecore.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/runtimecore.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_x86.o: ../../codegen/x86/runtimecore_x86.cpp ../../codegen/x86/runtimecore.h ../../codegen/runtimecore.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/runtimecore_x86.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_x86.o
+
+$(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_amd64.o: ../../codegen/x86/runtimecore_amd64.cpp ../../codegen/x86/runtimecore.h ../../codegen/runtimecore.h
+	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../codegen/x86/runtimecore_amd64.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86runtimecore_amd64.o
+
 $(OBJDIR_RELEASE)/__/__/engine/bytecode.o: ../../engine/bytecode.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/bytecode.cpp -o $(OBJDIR_RELEASE)/__/__/engine/bytecode.o
 
@@ -116,7 +159,7 @@ $(OBJDIR_RELEASE)/__/__/engine/amd64/amd64routines.o: ../../engine/amd64/amd64ro
 $(OBJDIR_RELEASE)/__/__/engine/x86/x86routines.o: ../../engine/x86/x86routines.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/x86/x86routines.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86/x86routines.o
 
-$(OBJDIR_RELEASE)/__/__/engine/x86_64compiler.o: ../../engine/x86_64compiler.cpp
+$(OBJDIR_RELEASE)/__/__/engine/x86_64compiler.o: ../../engine/x86_64compiler.cpp ../../engine/x86_64compiler.h ../../codegen/runtime.h ../../codegen/x86/abi.h ../../codegen/x86/runtimecore.h ../../engine/x86runtimecore.h ../../codegen/x86/lowering.h
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../../engine/x86_64compiler.cpp -o $(OBJDIR_RELEASE)/__/__/engine/x86_64compiler.o
 
 $(OBJDIR_RELEASE)/__/__/engine/xmlprojectbase.o: ../../engine/xmlprojectbase.cpp
@@ -136,7 +179,7 @@ $(OBJDIR_RELEASE)/__/windows/winsection.o: ../windows/winsection.cpp
 $(OBJDIR_RELEASE)/__/windows/elenawinvmachine.o: ../windows/elenawinvmachine.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../windows/elenawinvmachine.cpp -o $(OBJDIR_RELEASE)/__/windows/elenawinvmachine.o
 
-$(OBJDIR_RELEASE)/__/windows/dllmain.o: ../windows/dllmain.cpp
+$(OBJDIR_RELEASE)/__/windows/dllmain.o: ../windows/dllmain.cpp ../../engine/x86_64compiler.h ../../codegen/runtime.h ../../codegen/x86/abi.h
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../windows/dllmain.cpp -o $(OBJDIR_RELEASE)/__/windows/dllmain.o
 
 $(OBJDIR_RELEASE)/__/__/engine/windows/presenter.o: ../../engine/windows/presenter.cpp
@@ -156,7 +199,7 @@ $(OBJDIR_RELEASE)/__/linux/lnxsection.o: ../linux/lnxsection.cpp
 $(OBJDIR_RELEASE)/__/linux/elenalnxvmachine.o: ../linux/elenalnxvmachine.cpp
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../linux/elenalnxvmachine.cpp -o $(OBJDIR_RELEASE)/__/linux/elenalnxvmachine.o
 
-$(OBJDIR_RELEASE)/__/linux/main.o: ../linux/main.cpp
+$(OBJDIR_RELEASE)/__/linux/main.o: ../linux/main.cpp ../../engine/x86_64compiler.h ../../codegen/runtime.h ../../codegen/x86/abi.h
 	$(CXX) $(CFLAGS_RELEASE) $(INC_RELEASE) -c ../linux/main.cpp -o $(OBJDIR_RELEASE)/__/linux/main.o
 
 $(OBJDIR_RELEASE)/__/__/engine/linux/presenter.o: ../../engine/linux/presenter.cpp

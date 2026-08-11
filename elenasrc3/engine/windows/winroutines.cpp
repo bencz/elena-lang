@@ -242,3 +242,27 @@ void SystemRoutineProvider :: GCSignalClear(void* handle)
 {
    ::ResetEvent((HANDLE)handle);
 }
+
+static SRWLOCK CollectionLock = SRWLOCK_INIT;
+static CONDITION_VARIABLE CollectionCondition = CONDITION_VARIABLE_INIT;
+static size_t CollectionGeneration = 0;
+
+void SystemRoutineProvider :: GCWaitForCollection(GCTable* table)
+{
+   ::AcquireSRWLockExclusive(&CollectionLock);
+
+   size_t generation = CollectionGeneration;
+   while (generation == CollectionGeneration && table->gc_signal != 0)
+      ::SleepConditionVariableSRW(&CollectionCondition, &CollectionLock, INFINITE, 0);
+
+   ::ReleaseSRWLockExclusive(&CollectionLock);
+}
+
+void SystemRoutineProvider :: GCSignalCollectionEnd()
+{
+   ::AcquireSRWLockExclusive(&CollectionLock);
+   CollectionGeneration++;
+   ::ReleaseSRWLockExclusive(&CollectionLock);
+
+   ::WakeAllConditionVariable(&CollectionCondition);
+}

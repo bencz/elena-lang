@@ -243,7 +243,7 @@ public mtaThreadTableChurnTest() : testCase()
    Console.write(".")
 }
 
-// Regression, the system 8 safe point of thread_start
+// Regression, the non-collectable initialization of thread_start
 //
 // The collector only walks the thread table under gc_lock, so a thread reaching its
 // system 3 after that walk is invisible to the collection already running. It used to

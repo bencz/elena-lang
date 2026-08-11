@@ -76,12 +76,13 @@ JITCompilerBase* createJITCompiler(LibraryLoaderBase* loader, PlatformType platf
    switch (platform) {
    #if defined(__i386__)
       case PlatformType::Linux_x86:
-         return new X86JITCompiler();
+         return new X86JITCompiler(codegen::TargetPlatform::LinuxX86);
    #endif
    #if defined(__x86_64__)
       case PlatformType::Linux_x86_64:
+         return new X86_64JITCompiler(codegen::TargetPlatform::LinuxAMD64);
       case PlatformType::FreeBSD_x86_64:
-         return new X86_64JITCompiler();
+         return new X86_64JITCompiler(codegen::TargetPlatform::FreeBSDAMD64);
    #endif
    #if defined(__PPC64__)
       case PlatformType::Linux_PPC64le:
@@ -146,6 +147,12 @@ void printError(int errCode)
          break;
       case errCommandSetAbsent:
          printf("ELENAVM: cannot initialize core");
+         break;
+      case errInvalidECode:
+         printf("ELENAVM: invalid e-code tape");
+         break;
+      case errInvalidMachineCode:
+         printf("ELENAVM: invalid machine instruction");
          break;
       default:
          printf("ELENAVM: Unknown error %d\n", errCode);
@@ -550,4 +557,3 @@ int GetArgLA(int index, char* buffer, int length)
 
    return length;
 }
-
